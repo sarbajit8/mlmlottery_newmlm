@@ -1,0 +1,595 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  AGENT
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  PENDING_KYC
+}
+
+enum ActiveStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum SlotStatus {
+  ACTIVE
+  OPEN_NOW
+  DRAW_DONE
+  CLOSED
+}
+
+enum BatchStatus {
+  OPEN
+  LOCKED
+}
+
+enum TicketStatus {
+  AVAILABLE
+  SOLD
+  WINNER
+  CANCELLED
+}
+
+enum CommissionBase {
+  SEM_VALUE
+  PRICE
+  FLAT
+}
+
+enum PayoutMode {
+  INSTANT
+  BATCH
+}
+
+enum ShortfallPolicy {
+  FORFEIT
+  ROLLUP_TO_ADMIN
+}
+
+enum CommissionStatus {
+  PENDING
+  PAID
+  REVERSED
+}
+
+enum WalletTxnType {
+  COMMISSION
+  WITHDRAWAL
+  ADJUSTMENT
+  DEPOSIT
+  PURCHASE
+  PRIZE
+  TRANSFER
+  FEE
+}
+
+enum WalletTxnStatus {
+  PENDING
+  COMPLETED
+  REVERSED
+}
+
+enum WithdrawalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PAID
+}
+
+enum DepositStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum BankDetailsStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PrizeTier {
+  FIRST
+  SECOND
+  THIRD
+  FOURTH
+  FIFTH
+}
+
+model User {
+  id                Int        @id @default(autoincrement())
+  name              String
+  email             String     @unique
+  mobile            String
+  whatsapp          String?
+  passwordHash      String     @map("password_hash")
+  role              Role
+  sponsorId         Int?       @map("sponsor_id")
+  sponsor           User?      @relation("UserSponsor", fields: [sponsorId], references: [id])
+  downline          User[]     @relation("UserSponsor")
+  referralCode      String     @unique @map("referral_code")
+  status            UserStatus @default(PENDING_KYC)
+  isCompanyWallet   Boolean    @default(false) @map("is_company_wallet")
+  walletBalance     Decimal    @default(0) @map("wallet_balance") @db.Decimal(12, 2)
+  kycDocUrl         String?    @map("kyc_doc_url")
+  // Payout details an agent must set right after registration before using the rest of the agent
+  // panel. First-time submission applies immediately; any later change goes through BankDetailsRequest.
+  bankAccountHolder String?    @map("bank_account_holder")
+  bankAccountNumber String?    @map("bank_account_number")
+  bankIfsc          String?    @map("bank_ifsc")
+  bankName          String?    @map("bank_name")
+  upiId             String?    @map("upi_id")
+  approvedById      Int?       @map("approved_by_id")
+  approvedBy        User?      @relation("UserApprovedBy", fields: [approvedById], references: [id])
+  approvedUsers     User[]     @relation("UserApprovedBy")
+  approvedAt        DateTime?  @map("approved_at")
+  refreshTokenHash  String?    @map("refresh_token_hash")
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+
+  createdBatches        TicketBatch[]        @relation("BatchCreatedBy")
+  ticketsSold           Ticket[]             @relation("TicketSoldByAgent")
+  customersCreated      Customer[]           @relation("CustomerCreatedByAgent")
+  receipts              Receipt[]            @relation("ReceiptAgent")
+  drawResultsDeclared   DrawResult[]         @relation("ResultDeclaredBy")
+  commissionsEarned     CommissionLedger[]   @relation("CommissionEarner")
+  commissionsSourced    CommissionLedger[]   @relation("CommissionSource")
+  walletTransactions    WalletTransaction[]
+  withdrawalRequests    WithdrawalRequest[]  @relation("WithdrawalUser")
+  withdrawalsProcessed  WithdrawalRequest[]  @relation("WithdrawalProcessedBy")
+  depositRequests       DepositRequest[]     @relation("DepositUser")
+  depositsProcessed     DepositRequest[]     @relation("DepositProcessedBy")
+  transfersSent         WalletTransfer[]     @relation("TransferFrom")
+  transfersReceived     WalletTransfer[]     @relation("TransferTo")
+  bankDetailsRequests   BankDetailsRequest[] @relation("BankDetailsUser")
+  bankDetailsProcessed  BankDetailsRequest[] @relation("BankDetailsProcessedBy")
+  supportThread         SupportMessage[]     @relation("SupportThreadAgent")
+  supportMessagesSent   SupportMessage[]     @relation("SupportMessageSender")
+  auditLogs             AuditLog[]
+  paymentMethodsCreated PaymentMethod[]      @relation("PaymentMethodCreatedBy")
+
+  @@index([sponsorId])
+  @@index([role])
+  @@index([status])
+  @@map("users")
+}
+
+model DrawSlot {
+  id            Int        @id @default(autoincrement())
+  name          String
+  salesOpenTime DateTime   @map("sales_open_time") @db.Time(0)
+  drawCloseTime DateTime   @map("draw_close_time") @db.Time(0)
+  isActive      Boolean    @default(true) @map("is_active")
+  status        SlotStatus @default(ACTIVE)
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+
+  ticketBatches TicketBatch[]
+  tickets       Ticket[]
+  receipts      Receipt[]
+  drawResults   DrawResult[]
+
+  @@index([status])
+  @@map("draw_slots")
+}
+
+// Price per ticket for a series = multiplier x the single admin-configured ticket base price
+// (AppSetting key "ticketBasePrice", see system.service.ts) — there is no per-series base price
+// anymore, so every series scales from the same one number.
+model Series {
+  id         Int          @id @default(autoincrement())
+  name       String
+  multiplier Decimal      @db.Decimal(10, 2)
+  status     ActiveStatus @default(ACTIVE)
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+
+  ticketBatches TicketBatch[]
+  tickets       Ticket[]
+
+  @@index([status])
+  @@map("series")
+}
+
+model TicketBatch {
+  id             Int         @id @default(autoincrement())
+  batchCode      String      @unique @map("batch_code")
+  drawSlotId     Int         @map("draw_slot_id")
+  drawSlot       DrawSlot    @relation(fields: [drawSlotId], references: [id])
+  drawDate       DateTime    @map("draw_date") @db.Date
+  seriesId       Int         @map("series_id")
+  series         Series      @relation(fields: [seriesId], references: [id])
+  prefix         String
+  startNumber    Int         @map("start_number")
+  quantity       Int
+  pricePerTicket Decimal     @map("price_per_ticket") @db.Decimal(10, 2)
+  totalSemValue  Decimal     @map("total_sem_value") @db.Decimal(14, 2)
+  status         BatchStatus @default(OPEN)
+  createdById    Int         @map("created_by")
+  createdBy      User        @relation("BatchCreatedBy", fields: [createdById], references: [id])
+  createdAt      DateTime    @default(now()) @map("created_at")
+
+  tickets Ticket[]
+
+  // A prefix can only be used once per draw date — across every slot and series that day, not just
+  // within one. The same prefix is free to be reused again on a different date.
+  @@unique([prefix, drawDate])
+  @@index([drawSlotId, drawDate])
+  @@index([seriesId])
+  @@index([status])
+  @@map("ticket_batches")
+}
+
+model Ticket {
+  id               Int          @id @default(autoincrement())
+  batchId          Int          @map("batch_id")
+  batch            TicketBatch  @relation(fields: [batchId], references: [id])
+  // Unique per draw date, not globally — the same PREFIX-NNNNN string is free to be reused on a
+  // different day, as long as no other batch already claimed its prefix that same day (see
+  // TicketBatch's @@unique([prefix, drawDate]) below, which is what actually keeps this collision-free).
+  ticketNumber     String       @map("ticket_number")
+  drawSlotId       Int          @map("draw_slot_id")
+  drawSlot         DrawSlot     @relation(fields: [drawSlotId], references: [id])
+  drawDate         DateTime     @map("draw_date") @db.Date
+  seriesId         Int          @map("series_id")
+  series           Series       @relation(fields: [seriesId], references: [id])
+  status           TicketStatus @default(AVAILABLE)
+  semValue         Decimal      @map("sem_value") @db.Decimal(12, 2)
+  price            Decimal      @db.Decimal(10, 2)
+  soldByAgentId    Int?         @map("sold_by_agent_id")
+  soldByAgent      User?        @relation("TicketSoldByAgent", fields: [soldByAgentId], references: [id])
+  soldToCustomerId Int?         @map("sold_to_customer_id")
+  soldToCustomer   Customer?    @relation(fields: [soldToCustomerId], references: [id])
+  soldAt           DateTime?    @map("sold_at")
+  receiptId        Int?         @map("receipt_id")
+  receipt          Receipt?     @relation(fields: [receiptId], references: [id])
+
+  firstPrizeFor           DrawResult?        @relation("FirstPrizeTicket")
+  winnerEntries           DrawResultWinner[] @relation("TicketWinnerEntry")
+  commissionLedgerEntries CommissionLedger[]
+
+  @@unique([ticketNumber, drawDate])
+  @@index([status])
+  @@index([drawSlotId, drawDate, seriesId, status])
+  @@index([soldByAgentId])
+  @@index([soldToCustomerId])
+  @@index([receiptId])
+  @@map("tickets")
+}
+
+model Customer {
+  id               Int      @id @default(autoincrement())
+  name             String
+  mobile           String
+  whatsapp         String?
+  email            String?
+  createdByAgentId Int      @map("created_by_agent_id")
+  createdByAgent   User     @relation("CustomerCreatedByAgent", fields: [createdByAgentId], references: [id])
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  tickets  Ticket[]
+  receipts Receipt[]
+
+  @@unique([createdByAgentId, mobile])
+  @@index([mobile])
+  @@map("customers")
+}
+
+model Receipt {
+  id              Int            @id @default(autoincrement())
+  receiptCode     String         @unique @map("receipt_code")
+  agentId         Int            @map("agent_id")
+  agent           User           @relation("ReceiptAgent", fields: [agentId], references: [id])
+  customerId      Int            @map("customer_id")
+  customer        Customer       @relation(fields: [customerId], references: [id])
+  drawSlotId      Int            @map("draw_slot_id")
+  drawSlot        DrawSlot       @relation(fields: [drawSlotId], references: [id])
+  drawDate        DateTime       @map("draw_date") @db.Date
+  totalTickets    Int            @map("total_tickets")
+  totalSemValue   Decimal        @map("total_sem_value") @db.Decimal(14, 2)
+  totalAmount     Decimal        @map("total_amount") @db.Decimal(14, 2)
+  // Tickets are now paid out of the agent's wallet balance, not a per-sale UPI payment — these stay
+  // only for receipts created before that change, and for any future non-wallet payment path.
+  paymentMethodId Int?           @map("payment_method_id")
+  paymentMethod   PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
+  transactionId   String?        @unique @map("transaction_id")
+  createdAt       DateTime       @default(now()) @map("created_at")
+
+  tickets          Ticket[]
+  commissionLedger CommissionLedger[]
+
+  @@index([agentId])
+  @@index([customerId])
+  @@index([drawSlotId, drawDate])
+  @@index([paymentMethodId])
+  @@map("receipts")
+}
+
+// Admin-managed UPI/QR payment targets. Agents pay the active one out-of-band (their own UPI
+// app) to top up their wallet, then prove it by entering the transaction id/UTR on a deposit
+// request — see DepositRequest. (Ticket sales themselves are paid from the wallet balance.)
+model PaymentMethod {
+  id          Int      @id @default(autoincrement())
+  label       String
+  upiId       String   @map("upi_id")
+  qrImage     String   @map("qr_image") @db.Text // data URI (uploaded QR image) or hosted URL
+  isActive    Boolean  @default(false) @map("is_active")
+  createdById Int      @map("created_by")
+  createdBy   User     @relation("PaymentMethodCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  receipts        Receipt[]
+  depositRequests DepositRequest[]
+
+  @@index([isActive])
+  @@map("payment_methods")
+}
+
+// A single declared result for one draw occurrence (slot + date). The 1st prize is tied to one
+// actual sold ticket; 2nd-5th prizes are number *patterns* (not specific tickets) matched against
+// the last N digits of every sold ticket's number in that slot/date — same mechanic as real
+// state-lottery draws, where many tickets across different series can share a winning ending.
+model DrawResult {
+  id         Int      @id @default(autoincrement())
+  drawName   String   @map("draw_name")
+  drawNumber String   @map("draw_number")
+  drawSlotId Int      @map("draw_slot_id")
+  drawSlot   DrawSlot @relation(fields: [drawSlotId], references: [id])
+  drawDate   DateTime @map("draw_date") @db.Date
+
+  firstPrizeTicketId Int     @unique @map("first_prize_ticket_id")
+  firstPrizeTicket   Ticket  @relation("FirstPrizeTicket", fields: [firstPrizeTicketId], references: [id])
+  firstPrizeAmount   Decimal @map("first_prize_amount") @db.Decimal(12, 2)
+
+  secondPrizeAmount  Decimal @map("second_prize_amount") @db.Decimal(12, 2)
+  secondPrizeNumbers Json    @map("second_prize_numbers") // string[] of unique 5-digit patterns
+
+  thirdPrizeAmount  Decimal @map("third_prize_amount") @db.Decimal(12, 2)
+  thirdPrizeNumbers Json    @map("third_prize_numbers") // string[] of unique 4-digit patterns
+
+  fourthPrizeAmount  Decimal @map("fourth_prize_amount") @db.Decimal(12, 2)
+  fourthPrizeNumbers Json    @map("fourth_prize_numbers") // string[] of unique 4-digit patterns
+
+  fifthPrizeAmount     Decimal @map("fifth_prize_amount") @db.Decimal(12, 2)
+  fifthPrizePercentage Decimal @map("fifth_prize_percentage") @db.Decimal(5, 2)
+  fifthPrizeNumbers    Json    @map("fifth_prize_numbers") // string[] of unique 4-digit patterns
+
+  declaredById Int      @map("declared_by")
+  declaredBy   User     @relation("ResultDeclaredBy", fields: [declaredById], references: [id])
+  declaredAt   DateTime @default(now()) @map("declared_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  winners DrawResultWinner[]
+
+  @@index([drawSlotId, drawDate])
+  @@map("draw_results")
+}
+
+// One row per ticket that actually won something in a declared result (computed at declare/edit
+// time from the patterns above). Keeps per-ticket winner tracking for the ticket grid, Prize
+// Winners, and My Winners pages without re-deriving pattern matches on every read.
+model DrawResultWinner {
+  id           Int        @id @default(autoincrement())
+  drawResultId Int        @map("draw_result_id")
+  drawResult   DrawResult @relation(fields: [drawResultId], references: [id])
+  ticketId     Int        @map("ticket_id")
+  ticket       Ticket     @relation("TicketWinnerEntry", fields: [ticketId], references: [id])
+  prizeTier    PrizeTier  @map("prize_tier")
+  prizeAmount  Decimal    @map("prize_amount") @db.Decimal(12, 2)
+  createdAt    DateTime   @default(now()) @map("created_at")
+
+  @@unique([drawResultId, ticketId])
+  @@index([ticketId])
+  @@index([drawResultId, prizeTier])
+  @@map("draw_result_winners")
+}
+
+model MlmSettings {
+  id                 Int             @id @default(autoincrement())
+  maxLevels          Int             @map("max_levels")
+  commissionBase     CommissionBase  @default(SEM_VALUE) @map("commission_base")
+  flatAmount         Decimal?        @map("flat_amount") @db.Decimal(10, 2)
+  payoutMode         PayoutMode      @default(INSTANT) @map("payout_mode")
+  minPayoutThreshold Decimal         @default(0) @map("min_payout_threshold") @db.Decimal(10, 2)
+  shortfallPolicy    ShortfallPolicy @default(ROLLUP_TO_ADMIN) @map("shortfall_policy")
+  effectiveFrom      DateTime        @default(now()) @map("effective_from")
+  effectiveTo        DateTime?       @map("effective_to")
+  createdAt          DateTime        @default(now()) @map("created_at")
+
+  levelPercentages MlmLevelPercentage[]
+
+  @@index([effectiveFrom, effectiveTo])
+  @@map("mlm_settings")
+}
+
+model MlmLevelPercentage {
+  id            Int         @id @default(autoincrement())
+  mlmSettingsId Int         @map("mlm_settings_id")
+  mlmSettings   MlmSettings @relation(fields: [mlmSettingsId], references: [id])
+  levelNumber   Int         @map("level_number")
+  percentage    Decimal     @db.Decimal(5, 2)
+
+  @@unique([mlmSettingsId, levelNumber])
+  @@map("mlm_level_percentages")
+}
+
+model CommissionLedger {
+  id                Int              @id @default(autoincrement())
+  receiptId         Int              @map("receipt_id")
+  receipt           Receipt          @relation(fields: [receiptId], references: [id])
+  ticketId          Int              @map("ticket_id")
+  ticket            Ticket           @relation(fields: [ticketId], references: [id])
+  earningAgentId    Int              @map("earning_agent_id")
+  earningAgent      User             @relation("CommissionEarner", fields: [earningAgentId], references: [id])
+  sourceAgentId     Int              @map("source_agent_id")
+  sourceAgent       User             @relation("CommissionSource", fields: [sourceAgentId], references: [id])
+  levelNumber       Int              @map("level_number")
+  semValue          Decimal          @map("sem_value") @db.Decimal(12, 2)
+  percentageApplied Decimal          @map("percentage_applied") @db.Decimal(5, 2)
+  commissionAmount  Decimal          @map("commission_amount") @db.Decimal(12, 2)
+  status            CommissionStatus @default(PENDING)
+  createdAt         DateTime         @default(now()) @map("created_at")
+  paidAt            DateTime?        @map("paid_at")
+
+  @@index([earningAgentId])
+  @@index([sourceAgentId])
+  @@index([receiptId])
+  @@index([ticketId])
+  @@index([status])
+  @@index([earningAgentId, createdAt])
+  @@map("commission_ledger")
+}
+
+model WalletTransaction {
+  id           Int             @id @default(autoincrement())
+  userId       Int             @map("user_id")
+  user         User            @relation(fields: [userId], references: [id])
+  type         WalletTxnType
+  amount       Decimal         @db.Decimal(12, 2)
+  balanceAfter Decimal         @map("balance_after") @db.Decimal(12, 2)
+  refId        String?         @map("ref_id")
+  status       WalletTxnStatus @default(COMPLETED)
+  createdAt    DateTime        @default(now()) @map("created_at")
+
+  @@index([userId, createdAt])
+  @@index([type])
+  @@map("wallet_transactions")
+}
+
+model WithdrawalRequest {
+  id            Int              @id @default(autoincrement())
+  userId        Int              @map("user_id")
+  user          User             @relation("WithdrawalUser", fields: [userId], references: [id])
+  amount        Decimal          @db.Decimal(12, 2)
+  // Platform fee taken out of `amount` at the (admin-configured) rate current at request time —
+  // see system.service.ts getWalletRules(). Net payout to the agent = amount - feeAmount.
+  feeAmount     Decimal          @default(0) @map("fee_amount") @db.Decimal(12, 2)
+  status        WithdrawalStatus @default(PENDING)
+  requestedAt   DateTime         @default(now()) @map("requested_at")
+  processedAt   DateTime?        @map("processed_at")
+  processedById Int?             @map("processed_by")
+  processedBy   User?            @relation("WithdrawalProcessedBy", fields: [processedById], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@map("withdrawal_requests")
+}
+
+// Instant, self-service wallet-to-wallet transfer between two agents — no approval step, unlike
+// deposits/withdrawals. A log row purely for the audit trail/history; the actual money movement is
+// two WalletTransaction rows (debit sender, credit recipient), same pattern as everywhere else.
+model WalletTransfer {
+  id         Int      @id @default(autoincrement())
+  fromUserId Int      @map("from_user_id")
+  fromUser   User     @relation("TransferFrom", fields: [fromUserId], references: [id])
+  toUserId   Int      @map("to_user_id")
+  toUser     User     @relation("TransferTo", fields: [toUserId], references: [id])
+  amount     Decimal  @db.Decimal(12, 2)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([fromUserId])
+  @@index([toUserId])
+  @@map("wallet_transfers")
+}
+
+// An agent's proposed bank/UPI details. The agent's *first-ever* submission (when User.bankAccountNumber
+// is still null) applies straight to the User record — nothing to protect yet. Any change after that
+// creates one of these instead, and only lands on the User record once an admin approves it.
+model BankDetailsRequest {
+  id                Int               @id @default(autoincrement())
+  userId            Int               @map("user_id")
+  user              User              @relation("BankDetailsUser", fields: [userId], references: [id])
+  bankAccountHolder String            @map("bank_account_holder")
+  bankAccountNumber String            @map("bank_account_number")
+  bankIfsc          String            @map("bank_ifsc")
+  bankName          String?           @map("bank_name")
+  upiId             String?           @map("upi_id")
+  status            BankDetailsStatus @default(PENDING)
+  rejectionReason   String?           @map("rejection_reason") @db.Text
+  requestedAt       DateTime          @default(now()) @map("requested_at")
+  processedAt       DateTime?         @map("processed_at")
+  processedById     Int?              @map("processed_by")
+  processedBy       User?             @relation("BankDetailsProcessedBy", fields: [processedById], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@map("bank_details_requests")
+}
+
+// One support chat thread per agent, shared with every admin (not per-admin) — simplest model for a
+// small team. `agentId` says whose thread a message belongs to; `senderId` says who actually wrote
+// it (the agent themselves, or whichever admin replied). Read flags are per-side, not per-user.
+model SupportMessage {
+  id          Int      @id @default(autoincrement())
+  agentId     Int      @map("agent_id")
+  agent       User     @relation("SupportThreadAgent", fields: [agentId], references: [id])
+  senderId    Int      @map("sender_id")
+  sender      User     @relation("SupportMessageSender", fields: [senderId], references: [id])
+  message     String   @db.Text
+  readByAgent Boolean  @default(false) @map("read_by_agent")
+  readByAdmin Boolean  @default(false) @map("read_by_admin")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([agentId, createdAt])
+  @@map("support_messages")
+}
+
+// Adds money to an agent's wallet — either self-requested (agent pays the admin's UPI and submits
+// proof for approval) or credited directly by an admin (transactionId/paymentMethodId left null),
+// e.g. for cash received in person. Approval immediately credits the wallet; no separate "paid" step.
+model DepositRequest {
+  id              Int            @id @default(autoincrement())
+  userId          Int            @map("user_id")
+  user            User           @relation("DepositUser", fields: [userId], references: [id])
+  amount          Decimal        @db.Decimal(12, 2)
+  transactionId   String?        @unique @map("transaction_id")
+  paymentMethodId Int?           @map("payment_method_id")
+  paymentMethod   PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
+  note            String?        @db.Text
+  status          DepositStatus  @default(PENDING)
+  requestedAt     DateTime       @default(now()) @map("requested_at")
+  processedAt     DateTime?      @map("processed_at")
+  processedById   Int?           @map("processed_by")
+  processedBy     User?          @relation("DepositProcessedBy", fields: [processedById], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@map("deposit_requests")
+}
+
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  actorId    Int?     @map("actor_id")
+  actor      User?    @relation(fields: [actorId], references: [id])
+  action     String
+  entityType String   @map("entity_type")
+  entityId   Int?     @map("entity_id")
+  metadata   Json?
+  ipAddress  String?  @map("ip_address")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([actorId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model AppSetting {
+  key   String @id
+  value Json
+
+  @@map("app_settings")
+}
