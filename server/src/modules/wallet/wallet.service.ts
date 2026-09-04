@@ -1,8 +1,10 @@
 import { Prisma } from '@prisma/client';
+import type { Response } from 'express';
 import { prisma } from '../../lib/prisma.js';
 import { ApiError } from '../../lib/apiError.js';
 import { logActivity } from '../../middleware/auditLog.js';
 import { round2 } from '../../lib/money.js';
+import { streamCsv } from '../../lib/csv.js';
 import { getWalletRules } from '../system/system.service.js';
 
 /** Throws if `amount` doesn't satisfy the admin-configured minimum/step for a wallet operation. */
@@ -115,6 +117,54 @@ export async function listWithdrawals(query: ListWithdrawalsQuery, scopedUserId?
     prisma.withdrawalRequest.count({ where }),
   ]);
   return { items, total, page: query.page, pageSize: query.pageSize };
+}
+
+/** Bulk bank-transfer sheet for the admin: one row per withdrawal request matching the current
+ *  status filter, with the agent's bank details and the money split out as
+ *  Amount / TDS (the 10% fee already taken at request time) / Total Amount (= Amount - TDS, what
+ *  actually gets transferred to the agent's bank). Opens directly in Excel. */
+export async function exportWithdrawalsForBank(query: { status?: 'PENDING' | 'APPROVED' | 'REJECTED' | 'PAID' }, res: Response) {
+  const where: Prisma.WithdrawalRequestWhereInput = { status: query.status };
+  const rows = await prisma.withdrawalRequest.findMany({
+    where,
+    orderBy: { requestedAt: 'desc' },
+    include: {
+      user: {
+        select: {
+          name: true,
+          referralCode: true,
+          bankAccountHolder: true,
+          bankAccountNumber: true,
+          bankIfsc: true,
+          bankName: true,
+          upiId: true,
+        },
+      },
+    },
+  });
+
+  const stamp = new Date().toISOString().slice(0, 10);
+  const filename = `withdrawals-bank-transfer${query.status ? `-${query.status.toLowerCase()}` : ''}-${stamp}.csv`;
+
+  streamCsv(
+    res,
+    filename,
+    ['Agent Name', 'Referral Code', 'Account Holder', 'Bank Account', 'IFSC Code', 'Bank Name', 'UPI ID', 'Amount', 'TDS (10%)', 'Total Amount', 'Status', 'Requested At'],
+    rows.map((w) => [
+      w.user.name,
+      w.user.referralCode,
+      w.user.bankAccountHolder ?? '',
+      w.user.bankAccountNumber ?? '',
+      w.user.bankIfsc ?? '',
+      w.user.bankName ?? '',
+      w.user.upiId ?? '',
+      w.amount.toFixed(2),
+      w.feeAmount.toFixed(2),
+      w.amount.minus(w.feeAmount).toFixed(2),
+      w.status,
+      w.requestedAt.toISOString(),
+    ]),
+  );
 }
 
 export async function processWithdrawal(id: number, status: 'APPROVED' | 'REJECTED' | 'PAID', actorId: number) {

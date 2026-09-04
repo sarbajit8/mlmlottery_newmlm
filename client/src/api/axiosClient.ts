@@ -1,7 +1,9 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from '@/store/authStore';
 
-export const axiosClient = axios.create({ baseURL: '/api' });
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api';
+
+export const axiosClient = axios.create({ baseURL: API_BASE_URL });
 
 axiosClient.interceptors.request.use((config) => {
   const token = useAuthStore.getState().accessToken;
@@ -18,7 +20,7 @@ async function refreshAccessToken(): Promise<string> {
     throw new Error('No refresh token');
   }
   try {
-    const { data } = await axios.post('/api/auth/refresh', { refreshToken });
+    const { data } = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
     setTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken });
     return data.accessToken;
   } catch (err) {

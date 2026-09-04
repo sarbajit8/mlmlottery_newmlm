@@ -29,6 +29,14 @@ export async function listWithdrawalsHandler(req: Request, res: Response) {
   res.json(await service.listWithdrawals(req.query as unknown as service.ListWithdrawalsQuery, scopedUserId));
 }
 
+export async function exportWithdrawalsHandler(req: Request, res: Response) {
+  if (!req.user) throw ApiError.unauthorized();
+  await service.exportWithdrawalsForBank(
+    req.query as { status?: 'PENDING' | 'APPROVED' | 'REJECTED' | 'PAID' },
+    res,
+  );
+}
+
 export async function processWithdrawalHandler(req: Request, res: Response) {
   if (!req.user) throw ApiError.unauthorized();
   const { id } = req.params as unknown as { id: number };

@@ -12,8 +12,9 @@ import { Input, Select } from '@/components/ui/Input';
 import { FormField } from '@/components/ui/FormField';
 import { StatusBadge } from '@/components/ui/Badge';
 import { toast } from '@/store/toastStore';
+import { downloadFile } from '@/utils/download';
 import { formatCurrency, formatDateTime } from '@/utils/format';
-import { IconSettings } from '@/components/ui/icons';
+import { IconDownload, IconSettings } from '@/components/ui/icons';
 import type { WalletRules, WithdrawalRequest, WithdrawalStatus } from '@/types/api';
 
 export function WithdrawalRequestsPage() {
@@ -34,6 +35,19 @@ export function WithdrawalRequestsPage() {
     },
     onError: (err) => toast.error(apiErrorMessage(err)),
   });
+
+  const [exporting, setExporting] = useState(false);
+  async function exportForBank() {
+    setExporting(true);
+    try {
+      const suffix = status ? `-${status.toLowerCase()}` : '';
+      await downloadFile(walletApi.withdrawalsBankExportUrl(status || undefined), `withdrawals-bank-transfer${suffix}.csv`);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Could not export withdrawals'));
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const [rulesOpen, setRulesOpen] = useState(false);
   const { data: rules } = useQuery({ queryKey: ['wallet-rules'], queryFn: walletApi.rules });
@@ -112,6 +126,9 @@ export function WithdrawalRequestsPage() {
         description="Approve, reject, or mark agent withdrawal requests as paid."
         actions={
           <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" icon={<IconDownload className="h-4 w-4" />} onClick={exportForBank} loading={exporting}>
+              Export for Bank
+            </Button>
             <Button variant="secondary" icon={<IconSettings className="h-4 w-4" />} onClick={openRules}>
               Wallet Rules
             </Button>

@@ -8,6 +8,7 @@ import {
   adminDebitSchema,
   createDepositSchema,
   createWithdrawalSchema,
+  exportWithdrawalsQuerySchema,
   idParamSchema,
   listDepositsQuerySchema,
   listTransactionsQuerySchema,
@@ -19,6 +20,7 @@ import {
 import {
   adminCreditHandler,
   adminDebitHandler,
+  exportWithdrawalsHandler,
   getWalletHandler,
   getWalletRulesHandler,
   listDepositsHandler,
@@ -43,6 +45,12 @@ walletRouter.get('/rules', asyncHandler(getWalletRulesHandler));
 walletRouter.get('/transactions', validate({ query: listTransactionsQuerySchema }), asyncHandler(listTransactionsHandler));
 walletRouter.post('/withdrawals', validate({ body: createWithdrawalSchema }), asyncHandler(requestWithdrawalHandler));
 walletRouter.get('/withdrawals', validate({ query: listWithdrawalsQuerySchema }), asyncHandler(listWithdrawalsHandler));
+walletRouter.get(
+  '/withdrawals/export',
+  requireRole(...adminRoles),
+  validate({ query: exportWithdrawalsQuerySchema }),
+  asyncHandler(exportWithdrawalsHandler),
+);
 walletRouter.put(
   '/withdrawals/:id',
   requireRole(...adminRoles),
