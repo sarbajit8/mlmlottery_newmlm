@@ -5,6 +5,11 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
   PORT: z.coerce.number().default(5000),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  // Run `prisma migrate deploy` on server startup. Unset = on in production, off otherwise.
+  MIGRATE_ON_BOOT: z
+    .enum(['true', 'false'])
+    .transform((v) => v === 'true')
+    .optional(),
   TZ: z.string().default('Asia/Kolkata'),
   JWT_ACCESS_SECRET: z.string().min(16),
   JWT_REFRESH_SECRET: z.string().min(16),

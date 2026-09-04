@@ -5,33 +5,40 @@
 #
 #   cd /var/www/mlmlottery/server && bash scripts/deploy.sh
 #
-# It installs deps, applies any pending DB migrations, builds, and restarts the app under PM2.
-# Safe to run repeatedly — `prisma migrate deploy` only applies migrations that haven't run yet.
+# It installs deps, applies any pending DB migrations, builds server + client, and restarts the app
+# under PM2. Safe to run repeatedly — `prisma migrate deploy` only applies migrations not yet run.
 
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.."          # -> server/
+SERVER_DIR="$PWD"
+ROOT_DIR="$(dirname "$SERVER_DIR")"
 
 APP_NAME="${APP_NAME:-mlmlottery-api}"
 
-echo "==> [1/5] Installing dependencies (npm ci)"
+echo "==> [1/6] Installing server dependencies (npm ci)"
 npm ci
 
-echo "==> [2/5] Generating Prisma client"
+echo "==> [2/6] Generating Prisma client"
 npx prisma generate
 
-echo "==> [3/5] Applying database migrations (prisma migrate deploy)"
+echo "==> [3/6] Applying database migrations (prisma migrate deploy)"
 npx prisma migrate deploy
 
-echo "==> [4/5] Building TypeScript"
+echo "==> [4/6] Building server (TypeScript)"
 npm run build
 
-echo "==> [5/5] Restarting app under PM2 ($APP_NAME)"
+echo "==> [5/6] Building client (Vite)"
+cd "$ROOT_DIR/client"
+npm ci
+npm run build
+cd "$SERVER_DIR"
+
+echo "==> [6/6] Restarting app under PM2 ($APP_NAME)"
 if command -v pm2 >/dev/null 2>&1; then
   if pm2 describe "$APP_NAME" >/dev/null 2>&1; then
     pm2 reload "$APP_NAME" --update-env
   else
-    # start:nomigrate — migrations already ran in step 3
-    pm2 start npm --name "$APP_NAME" -- run start:nomigrate
+    pm2 start npm --name "$APP_NAME" -- start
   fi
   pm2 save
 else
