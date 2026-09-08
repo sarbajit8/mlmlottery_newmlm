@@ -3,6 +3,7 @@ export interface ReceiptWaLinkInput {
   drawSlotName: string;
   drawDate: string;
   ticketNumbers: string[];
+  totalSemValue: number;
   totalAmount: number;
 }
 
@@ -13,6 +14,7 @@ export function buildReceiptWaLink(input: ReceiptWaLinkInput): string {
   const lines = [
     `Draw: ${input.drawSlotName} on ${input.drawDate}`,
     `Tickets (${input.ticketNumbers.length}): ${input.ticketNumbers.join(', ')}`,
+    `Total SEM Value: Rs. ${input.totalSemValue.toFixed(2)}`,
     `Total Paid: Rs. ${input.totalAmount.toFixed(2)}`,
   ];
   const text = encodeURIComponent(lines.join('\n'));

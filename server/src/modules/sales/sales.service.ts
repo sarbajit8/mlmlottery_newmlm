@@ -21,6 +21,7 @@ export async function createSale(input: CreateSaleInput, agentId: number) {
         drawSlotName: result.drawSlotName,
         drawDate: result.receipt.drawDate.toISOString().slice(0, 10),
         ticketNumbers: result.ticketNumbers,
+        totalSemValue: result.receipt.totalSemValue.toNumber(),
         totalAmount: result.receipt.totalAmount.toNumber(),
       })
     : null;

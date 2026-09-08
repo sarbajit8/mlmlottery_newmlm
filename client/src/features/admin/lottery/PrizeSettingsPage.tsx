@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { seriesApi } from '@/api/series';
 import { systemApi } from '@/api/system';
+import { mlmApi } from '@/api/mlm';
 import { apiErrorMessage } from '@/api/axiosClient';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -75,11 +76,57 @@ export function PrizeSettingsPage() {
   // Series multipliers to preview the SEM-wise payout table.
   const activeSeries = (seriesList ?? []).filter((s) => s.status === 'ACTIVE').sort((a, b) => Number(a.multiplier) - Number(b.multiplier));
 
+  // --- Prize win commission per level (same store as MLM Settings' Win % column) ---
+  const { data: mlmSettings } = useQuery({ queryKey: ['mlm-settings'], queryFn: mlmApi.getSettings });
+  const [winForm, setWinForm] = useState<Record<number, string>>({});
+  const [winError, setWinError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!mlmSettings) return;
+    const map: Record<number, string> = {};
+    for (let lvl = 1; lvl <= mlmSettings.maxLevels; lvl++) {
+      const row = mlmSettings.levelPercentages.find((l) => l.levelNumber === lvl);
+      map[lvl] = row ? String(Number(row.winPercentage)) : '0';
+    }
+    setWinForm(map);
+  }, [mlmSettings]);
+
+  const winLevels = mlmSettings ? Array.from({ length: mlmSettings.maxLevels }, (_, i) => i + 1) : [];
+  const winTotal = winLevels.reduce((sum, lvl) => sum + (Number(winForm[lvl]) || 0), 0);
+
+  const saveWinMut = useMutation({
+    mutationFn: () => {
+      if (!mlmSettings) throw new Error('MLM settings not loaded yet');
+      return mlmApi.updateSettings({
+        maxLevels: mlmSettings.maxLevels,
+        commissionBase: mlmSettings.commissionBase,
+        flatAmount: mlmSettings.flatAmount ? Number(mlmSettings.flatAmount) : undefined,
+        payoutMode: mlmSettings.payoutMode,
+        minPayoutThreshold: Number(mlmSettings.minPayoutThreshold),
+        shortfallPolicy: mlmSettings.shortfallPolicy,
+        levelPercentages: winLevels.map((lvl) => {
+          const row = mlmSettings.levelPercentages.find((l) => l.levelNumber === lvl);
+          return {
+            levelNumber: lvl,
+            percentage: row ? Number(row.percentage) : 0, // preserve the sale % — only win % changes here
+            winPercentage: Number(winForm[lvl]) || 0,
+          };
+        }),
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['mlm-settings'] });
+      toast.success('Prize win commission saved');
+      setWinError(null);
+    },
+    onError: (err) => setWinError(apiErrorMessage(err)),
+  });
+
   return (
     <div>
       <PageHeader
         title="Prize Settings"
-        description="One place to set every prize amount. Values are the 1-SEM base — each winning ticket is paid this × its series multiplier (3CM wins 3×, 5CM 5×…). Declaring a result no longer asks for amounts."
+        description="Set every prize amount and the level-wise win commission here. Amounts are the 1-SEM base — each winning ticket is paid this × its series multiplier (3CM wins 3×, 5CM 5×…), minus the win commission paid up the seller's chain."
       />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
@@ -164,9 +211,70 @@ export function PrizeSettingsPage() {
               </div>
             )}
             <p className="mt-3 text-xs text-slate-500">
-              These are the full prizes. The MLM "win" commission (Win % per level, under MLM Settings) is taken out of each
-              winning ticket's prize and paid up the seller's sponsor chain — the selling agent receives the remainder.
+              These are the full prizes. The prize win commission set below is taken out of each winning ticket's prize and
+              paid up the seller's sponsor chain — the selling agent receives the remainder.
             </p>
+          </CardBody>
+        </Card>
+
+        <Card className="lg:col-span-5">
+          <CardHeader>
+            <CardTitle>Prize Win Commission (per level)</CardTitle>
+            <span className="text-xs text-slate-500">
+              Total{' '}
+              <span className={winTotal > 100 ? 'font-semibold text-red-400' : 'font-semibold text-emerald-400'}>{winTotal.toFixed(2)}%</span>
+            </span>
+          </CardHeader>
+          <CardBody className="space-y-4">
+            <p className="text-xs text-slate-500">
+              When a ticket wins, this % of its (SEM-scaled) prize is paid to each level above the selling agent — level 1 is the
+              direct sponsor, and so on. Levels with no upline roll up to the company wallet. This is the same setting as the
+              “Win %” column on the MLM Settings page.
+            </p>
+
+            {!mlmSettings ? (
+              <p className="text-sm text-slate-500">Loading levels…</p>
+            ) : (
+              <>
+                <div className="max-w-md space-y-2">
+                  <div className="flex items-center gap-3 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                    <span className="w-20 shrink-0">Level</span>
+                    <span className="flex-1">Win commission %</span>
+                  </div>
+                  {winLevels.map((lvl) => (
+                    <div key={lvl} className="flex items-center gap-3">
+                      <span className="w-20 shrink-0 text-xs text-slate-400">Level {lvl}</span>
+                      <Input
+                        className="flex-1"
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.1"
+                        value={winForm[lvl] ?? ''}
+                        onChange={(e) => setWinForm({ ...winForm, [lvl]: e.target.value })}
+                      />
+                      <span className="text-xs text-slate-500">%</span>
+                    </div>
+                  ))}
+                </div>
+
+                {winTotal > 100 && (
+                  <p className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                    Win commission sums to over 100% — a winner would owe more than the prize. Double-check.
+                  </p>
+                )}
+                {winError && <p className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300">{winError}</p>}
+
+                <div className="flex items-center gap-3">
+                  <Button loading={saveWinMut.isPending} onClick={() => saveWinMut.mutate()}>
+                    Save Win Commission
+                  </Button>
+                  <span className="text-xs text-slate-500">
+                    To change the number of levels, use MLM Settings — it drives both sale and win commission.
+                  </span>
+                </div>
+              </>
+            )}
           </CardBody>
         </Card>
       </div>
