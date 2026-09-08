@@ -64,6 +64,11 @@ enum CommissionStatus {
   REVERSED
 }
 
+enum CommissionKind {
+  SALE // paid to the seller's upline when a ticket is sold (percentage = MlmLevelPercentage.percentage)
+  WIN // paid to the seller's upline when that ticket wins a prize (percentage = MlmLevelPercentage.winPercentage)
+}
+
 enum WalletTxnType {
   COMMISSION
   WITHDRAWAL
@@ -372,7 +377,8 @@ model DrawResult {
   declaredAt   DateTime @default(now()) @map("declared_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  winners DrawResultWinner[]
+  winners          DrawResultWinner[]
+  commissionLedger CommissionLedger[]
 
   @@index([drawSlotId, drawDate])
   @@map("draw_results")
@@ -388,8 +394,12 @@ model DrawResultWinner {
   ticketId     Int        @map("ticket_id")
   ticket       Ticket     @relation("TicketWinnerEntry", fields: [ticketId], references: [id])
   prizeTier    PrizeTier  @map("prize_tier")
-  prizeAmount  Decimal    @map("prize_amount") @db.Decimal(12, 2)
-  createdAt    DateTime   @default(now()) @map("created_at")
+  // grossPrizeAmount = the full prize the ticket won (tier base x series multiplier).
+  // prizeAmount = what actually reached the selling agent's wallet: gross minus the MLM "win"
+  // commission cut paid up their sponsor chain (see CommissionLedger kind=WIN for that draw result).
+  grossPrizeAmount Decimal @default(0) @map("gross_prize_amount") @db.Decimal(12, 2)
+  prizeAmount      Decimal @map("prize_amount") @db.Decimal(12, 2)
+  createdAt        DateTime @default(now()) @map("created_at")
 
   @@unique([drawResultId, ticketId])
   @@index([ticketId])
@@ -420,7 +430,8 @@ model MlmLevelPercentage {
   mlmSettingsId Int         @map("mlm_settings_id")
   mlmSettings   MlmSettings @relation(fields: [mlmSettingsId], references: [id])
   levelNumber   Int         @map("level_number")
-  percentage    Decimal     @db.Decimal(5, 2)
+  percentage    Decimal     @db.Decimal(5, 2) // sale commission — % of a sold ticket's SEM value
+  winPercentage Decimal     @default(0) @map("win_percentage") @db.Decimal(5, 2) // prize-win commission — % of a winning ticket's prize amount
 
   @@unique([mlmSettingsId, levelNumber])
   @@map("mlm_level_percentages")
@@ -428,15 +439,22 @@ model MlmLevelPercentage {
 
 model CommissionLedger {
   id                Int              @id @default(autoincrement())
+  kind              CommissionKind   @default(SALE)
   receiptId         Int              @map("receipt_id")
   receipt           Receipt          @relation(fields: [receiptId], references: [id])
   ticketId          Int              @map("ticket_id")
   ticket            Ticket           @relation(fields: [ticketId], references: [id])
+  // Set only on WIN rows — the declared result the prize commission came from, so an edited or
+  // deleted result can reverse exactly its own commission rows.
+  drawResultId      Int?             @map("draw_result_id")
+  drawResult        DrawResult?      @relation(fields: [drawResultId], references: [id])
   earningAgentId    Int              @map("earning_agent_id")
   earningAgent      User             @relation("CommissionEarner", fields: [earningAgentId], references: [id])
   sourceAgentId     Int              @map("source_agent_id")
   sourceAgent       User             @relation("CommissionSource", fields: [sourceAgentId], references: [id])
   levelNumber       Int              @map("level_number")
+  // For SALE rows this is the ticket's SEM value; for WIN rows it's the ticket's prize amount —
+  // both are the base the percentage was applied to.
   semValue          Decimal          @map("sem_value") @db.Decimal(12, 2)
   percentageApplied Decimal          @map("percentage_applied") @db.Decimal(5, 2)
   commissionAmount  Decimal          @map("commission_amount") @db.Decimal(12, 2)
@@ -448,7 +466,9 @@ model CommissionLedger {
   @@index([sourceAgentId])
   @@index([receiptId])
   @@index([ticketId])
+  @@index([drawResultId])
   @@index([status])
+  @@index([kind])
   @@index([earningAgentId, createdAt])
   @@map("commission_ledger")
 }

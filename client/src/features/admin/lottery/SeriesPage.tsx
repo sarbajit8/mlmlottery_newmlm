@@ -75,7 +75,7 @@ export function SeriesPage() {
 
   const columns: Column<Series>[] = [
     { key: 'name', header: 'Series', render: (r) => <span className="font-medium text-slate-100">{r.name}</span> },
-    { key: 'multiplier', header: 'Multiplier', render: (r) => `${Number(r.multiplier)}x` },
+    { key: 'multiplier', header: 'SEM', render: (r) => `${Number(r.multiplier)}×` },
     { key: 'sem', header: 'Ticket Price (SEM Value)', render: (r) => <span className="font-medium text-amber-300">{formatCurrency(r.semValue)}</span> },
     { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} /> },
     {
@@ -97,7 +97,7 @@ export function SeriesPage() {
     <div>
       <PageHeader
         title="Series (SEM)"
-        description={`Multiplier tiers used for ticket pricing and commission calculation. Ticket price = Multiplier × the ticket base price (currently ${formatCurrency(ticketBasePrice)} — set it under Settings).`}
+        description={`SEM tiers used for ticket pricing, prize money and commission. Ticket price = SEM × the ticket base price (currently ${formatCurrency(ticketBasePrice)} — set it under Settings), and a winning ticket's prize is the declared amount × its SEM.`}
         actions={
           <Button icon={<IconPlus className="h-4 w-4" />} onClick={openCreate}>
             Add Series
@@ -120,12 +120,19 @@ export function SeriesPage() {
           <FormField label="Series Name" required>
             <Input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. 5CM" />
           </FormField>
-          <FormField label="Multiplier" required hint={`Ticket base price is ${formatCurrency(ticketBasePrice)} — set under Settings, shared by every series.`}>
+          <FormField label="SEM (multiplier)" required hint={`Ticket base price is ${formatCurrency(ticketBasePrice)} (1 SEM) — set under Settings, shared by every series. Price = SEM × base.`}>
             <Input type="number" min="0.01" step="0.01" required value={form.multiplier} onChange={(e) => setForm({ ...form, multiplier: e.target.value })} />
           </FormField>
-          <p className="text-xs text-slate-500">
-            Ticket price preview: <span className="font-medium text-amber-300">{formatCurrency((Number(form.multiplier) || 0) * ticketBasePrice)}</span>
-          </p>
+          <div className="rounded-lg border border-white/8 px-3 py-2 text-xs text-slate-400">
+            <p>
+              Ticket price: <span className="font-medium text-amber-300">{formatCurrency((Number(form.multiplier) || 0) * ticketBasePrice)}</span>
+              <span className="text-slate-500"> = {Number(form.multiplier) || 0} × {formatCurrency(ticketBasePrice)}</span>
+            </p>
+            <p className="mt-1 text-slate-500">
+              1 SEM {formatCurrency(ticketBasePrice)} · 2 SEM {formatCurrency(2 * ticketBasePrice)} · 3 SEM {formatCurrency(3 * ticketBasePrice)} · 4 SEM {formatCurrency(4 * ticketBasePrice)}
+            </p>
+            <p className="mt-1 text-slate-500">Prize money also scales by SEM — a 2-SEM winning ticket is paid 2× the declared prize.</p>
+          </div>
           <FormField label="Status">
             <Select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as 'ACTIVE' | 'INACTIVE' })}>
               <option value="ACTIVE">Active</option>

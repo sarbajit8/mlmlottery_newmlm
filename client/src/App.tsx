@@ -16,6 +16,7 @@ import { DrawSlotsPage } from '@/features/admin/lottery/DrawSlotsPage';
 import { SeriesPage } from '@/features/admin/lottery/SeriesPage';
 import { GenerateTicketsPage } from '@/features/admin/lottery/GenerateTicketsPage';
 import { AllTicketsPage } from '@/features/admin/lottery/AllTicketsPage';
+import { PrizeSettingsPage } from '@/features/admin/lottery/PrizeSettingsPage';
 import { DeclareResultsPage } from '@/features/admin/lottery/DeclareResultsPage';
 import { PrizeWinnersPage } from '@/features/admin/lottery/PrizeWinnersPage';
 import { MlmSettingsPage } from '@/features/admin/mlm/MlmSettingsPage';
@@ -60,6 +61,7 @@ export function App() {
               <Route path="/admin/series" element={<SeriesPage />} />
               <Route path="/admin/generate-tickets" element={<GenerateTicketsPage />} />
               <Route path="/admin/tickets" element={<AllTicketsPage />} />
+              <Route path="/admin/prize-settings" element={<PrizeSettingsPage />} />
               <Route path="/admin/declare-results" element={<DeclareResultsPage />} />
               <Route path="/admin/winners" element={<PrizeWinnersPage />} />
               <Route path="/admin/mlm/settings" element={<MlmSettingsPage />} />

@@ -12,7 +12,7 @@ import { toast } from '@/store/toastStore';
 import { IconTrash } from '@/components/ui/icons';
 
 const FIELDS: { key: string; label: string; placeholder: string; hint?: string; type?: string }[] = [
-  { key: 'companyName', label: 'Website / Company Name', placeholder: 'Bhutan Cherapunji Lottery', hint: 'Shown across the website — landing page, login, sidebars — and on every printed ticket.' },
+  { key: 'companyName', label: 'Website / Company Name', placeholder: 'FastDialCab', hint: 'Shown across the website — landing page, login, sidebars, browser tab, and link previews when a referral link is shared — and on every printed ticket.' },
   {
     key: 'ticketBasePrice',
     label: 'Ticket Base Price',

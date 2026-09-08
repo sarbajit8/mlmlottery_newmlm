@@ -67,11 +67,19 @@ export function OrgTree({ root, accent }: { root: TreeNode; accent: 'amber' | 'e
   const containerRef = useRef<HTMLDivElement>(null);
   const [translate, setTranslate] = useState({ x: 100, y: 60 });
 
+  // The container can still be 0-width on the first paint (card mounting, tab switch). A
+  // ResizeObserver keeps the tree centred once the layout settles instead of pinning it off-screen.
   useEffect(() => {
-    if (containerRef.current) {
-      const { width } = containerRef.current.getBoundingClientRect();
-      setTranslate({ x: width / 2, y: 60 });
-    }
+    const el = containerRef.current;
+    if (!el) return;
+    const recentre = () => {
+      const { width } = el.getBoundingClientRect();
+      if (width > 0) setTranslate((t) => (Math.abs(t.x - width / 2) < 1 ? t : { x: width / 2, y: 60 }));
+    };
+    recentre();
+    const ro = new ResizeObserver(recentre);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
 
   const renderNode = useCallback((props: CustomNodeElementProps) => <TreeCard {...props} accent={accent} />, [accent]);

@@ -19,19 +19,14 @@ export const declareResultSchema = z
     drawSlotId: z.coerce.number().int().positive(),
     drawDate: z.coerce.date(),
 
+    // Prize amounts are NOT entered here — they always come from the admin's Prize Settings page
+    // (AppSetting "defaultPrizeAmounts"), scaled per winning ticket by its series multiplier.
     firstPrizeTicketNumber: z.string().min(1),
-    firstPrizeAmount: z.coerce.number().min(0),
 
-    secondPrizeAmount: z.coerce.number().min(0),
     secondPrizeNumbers: z.array(z.string().regex(fiveDigit, 'Must be a 5-digit number')).min(1).max(1000),
-
-    thirdPrizeAmount: z.coerce.number().min(0),
     thirdPrizeNumbers: z.array(z.string().regex(fourDigit, 'Must be a 4-digit number')).min(1).max(10000),
-
-    fourthPrizeAmount: z.coerce.number().min(0),
     fourthPrizeNumbers: z.array(z.string().regex(fourDigit, 'Must be a 4-digit number')).min(1).max(10000),
 
-    fifthPrizeAmount: z.coerce.number().min(0),
     fifthPrizePercentage: z.coerce.number().min(0).max(100),
     fifthPrizeNumbers: z.array(z.string().regex(fourDigit, 'Must be a 4-digit number')).min(1).max(10000),
   })

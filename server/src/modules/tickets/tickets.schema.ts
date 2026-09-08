@@ -12,7 +12,7 @@ export const generateTicketsBodySchema = z.object({
     .regex(/^[A-Za-z0-9]+$/, 'Prefix must be alphanumeric'),
   startNumber: z.coerce.number().int().min(0),
   quantity: z.coerce.number().int().min(1).max(MAX_TICKET_GENERATION_QTY),
-  pricePerTicket: z.coerce.number().positive().optional(), // defaults to the admin ticket base price x series multiplier
+  pricePerTicket: z.coerce.number().positive().optional(), // per-SEM base for this batch; charged price = this x series multiplier. Omitted => admin ticket base price x multiplier
 });
 
 export const previewTicketsBodySchema = generateTicketsBodySchema;

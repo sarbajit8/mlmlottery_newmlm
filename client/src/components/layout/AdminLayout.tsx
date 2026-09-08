@@ -55,6 +55,7 @@ const sections: NavSection[] = [
       { label: 'Series (SEM)', to: '/admin/series', icon: IconLayers },
       { label: 'Generate Tickets', to: '/admin/generate-tickets', icon: IconTicket },
       { label: 'All Tickets', to: '/admin/tickets', icon: IconTicket },
+      { label: 'Prize Settings', to: '/admin/prize-settings', icon: IconSettings },
       { label: 'Declare Results', to: '/admin/declare-results', icon: IconTrophy },
       { label: 'Prize Winners', to: '/admin/winners', icon: IconTrophy },
     ],

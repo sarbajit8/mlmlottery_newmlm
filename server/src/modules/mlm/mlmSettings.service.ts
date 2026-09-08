@@ -19,7 +19,7 @@ export interface UpdateSettingsInput {
   payoutMode: 'INSTANT' | 'BATCH';
   minPayoutThreshold: number;
   shortfallPolicy: 'FORFEIT' | 'ROLLUP_TO_ADMIN';
-  levelPercentages: { levelNumber: number; percentage: number }[];
+  levelPercentages: { levelNumber: number; percentage: number; winPercentage: number }[];
 }
 
 /** Closes the currently-active settings row and inserts a new one, so past sales keep the % active at the time. */

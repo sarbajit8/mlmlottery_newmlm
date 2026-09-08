@@ -8,7 +8,7 @@ export interface UpdateMlmSettingsInput {
   payoutMode: 'INSTANT' | 'BATCH';
   minPayoutThreshold: number;
   shortfallPolicy: 'FORFEIT' | 'ROLLUP_TO_ADMIN';
-  levelPercentages: { levelNumber: number; percentage: number }[];
+  levelPercentages: { levelNumber: number; percentage: number; winPercentage: number }[];
 }
 
 export const mlmApi = {

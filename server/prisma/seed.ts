@@ -52,14 +52,16 @@ async function main() {
 
   const existingBasePrice = await prisma.appSetting.findUnique({ where: { key: 'ticketBasePrice' } });
   if (!existingBasePrice) {
-    await prisma.appSetting.create({ data: { key: 'ticketBasePrice', value: 10 } });
-    console.log('Seeded default ticket base price: 10');
+    await prisma.appSetting.create({ data: { key: 'ticketBasePrice', value: 7 } });
+    console.log('Seeded default ticket base price: 7');
   }
 
   const seriesDefs = [
-    { name: '3CM', multiplier: 3 },
-    { name: '5CM', multiplier: 5 },
-    { name: '10CM', multiplier: 10 },
+    { name: '1 SEM', multiplier: 1 },
+    { name: '2 SEM', multiplier: 2 },
+    { name: '3 SEM', multiplier: 3 },
+    { name: '4 SEM', multiplier: 4 },
+    { name: '5 SEM', multiplier: 5 },
   ];
   for (const s of seriesDefs) {
     const existing = await prisma.series.findFirst({ where: { name: s.name } });

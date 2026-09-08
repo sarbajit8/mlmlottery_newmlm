@@ -21,13 +21,26 @@ export function MyWinnersPage() {
     { key: 'draw', header: 'Draw', render: (r) => `${r.drawResult?.drawName} #${r.drawResult?.drawNumber}` },
     { key: 'slot', header: 'Slot', render: (r) => r.drawResult?.drawSlot.name },
     { key: 'customer', header: 'Customer', render: (r) => r.ticket.soldToCustomer?.name ?? '—' },
-    { key: 'prize', header: 'Prize', render: (r) => <span className="font-semibold text-amber-300">{formatCurrency(r.prizeAmount)}</span> },
+    { key: 'gross', header: 'Prize Won', render: (r) => <span className="text-slate-400">{formatCurrency(r.grossPrizeAmount)}</span> },
+    {
+      key: 'prize',
+      header: 'Credited to You',
+      render: (r) => {
+        const cut = Number(r.grossPrizeAmount) - Number(r.prizeAmount);
+        return (
+          <span className="font-semibold text-amber-300">
+            {formatCurrency(r.prizeAmount)}
+            {cut > 0 && <span className="ml-1 text-[10px] font-normal text-slate-500">(after {formatCurrency(cut)} team comm.)</span>}
+          </span>
+        );
+      },
+    },
     { key: 'declared', header: 'Declared At', render: (r) => (r.drawResult ? formatDateTime(r.drawResult.declaredAt) : '—') },
   ];
 
   return (
     <div>
-      <PageHeader title="My Winners" description="Winning tickets sold by you — prize amounts are credited straight to your wallet the moment a result is declared." />
+      <PageHeader title="My Winners" description="Winning tickets you sold. The prize is credited to your wallet the moment a result is declared, minus the MLM win commission that goes up your sponsor chain." />
       <Card>
         <DataTable columns={columns} data={data?.items ?? []} rowKey={(r) => r.id} loading={isLoading} total={data?.total} page={page} pageSize={20} onPageChange={setPage} emptyTitle="None of your tickets have won yet" accent="emerald" />
       </Card>

@@ -65,6 +65,18 @@ body {
   animation: shimmer 1.4s ease-in-out infinite;
 }
 
+/* react-d3-tree v3 ships no CSS — its container div collapses to 0 height unless we size it,
+   which leaves the MLM Tree pane blank. Give it (and the svg it holds) the full height of
+   whatever wrapper we drop it into. */
+.rd3t-tree-container {
+  width: 100%;
+  height: 100%;
+}
+.rd3t-svg {
+  width: 100%;
+  height: 100%;
+}
+
 /* Printed tickets rely on gradients/color for their design — force browsers to include
    background graphics instead of silently stripping them down to plain black-on-white. */
 @media print {

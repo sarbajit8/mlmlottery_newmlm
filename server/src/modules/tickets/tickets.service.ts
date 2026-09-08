@@ -41,9 +41,14 @@ async function resolveSeriesAndPrice(input: TicketGenInput) {
   const drawSlot = await prisma.drawSlot.findUnique({ where: { id: input.drawSlotId } });
   if (!drawSlot) throw ApiError.badRequest('Draw slot not found');
 
+  // The per-SEM (1×) unit value for this batch: pricePerTicket when the admin sets one on the form,
+  // otherwise the global admin-configured ticket base price. Everything else scales from it by the
+  // series multiplier — SEM value and charged price are the same number: value 8 on a 3× series
+  // => 24, on a 1× series => 8.
   const ticketBasePrice = await getTicketBasePrice();
-  const semValue = round2(series.multiplier.times(ticketBasePrice));
-  const price = input.pricePerTicket !== undefined ? round2(input.pricePerTicket) : semValue;
+  const unitValue = input.pricePerTicket !== undefined ? new Prisma.Decimal(input.pricePerTicket) : new Prisma.Decimal(ticketBasePrice);
+  const semValue = round2(series.multiplier.times(unitValue));
+  const price = semValue;
   return { series, drawSlot, semValue, price };
 }
 

@@ -4,6 +4,8 @@ import { ApiError } from '../../lib/apiError.js';
 import { logActivity } from '../../middleware/auditLog.js';
 import { round2 } from '../../lib/money.js';
 import { ticketNumberSuffix } from '../../lib/ticketNumber.js';
+import { getDefaultPrizeAmounts } from '../system/system.service.js';
+import { computePrizeWinCommissions } from '../mlm/commission.engine.js';
 
 export interface DeclareResultInput {
   drawName: string;
@@ -11,23 +13,29 @@ export interface DeclareResultInput {
   drawSlotId: number;
   drawDate: Date;
   firstPrizeTicketNumber: string;
-  firstPrizeAmount: number;
-  secondPrizeAmount: number;
   secondPrizeNumbers: string[];
-  thirdPrizeAmount: number;
   thirdPrizeNumbers: string[];
-  fourthPrizeAmount: number;
   fourthPrizeNumbers: string[];
-  fifthPrizeAmount: number;
   fifthPrizePercentage: number;
   fifthPrizeNumbers: string[];
+}
+
+/** The 1-SEM base amount for each prize tier — always sourced from the admin's Prize Settings page. */
+interface PrizeBaseAmounts {
+  firstPrizeAmount: number;
+  secondPrizeAmount: number;
+  thirdPrizeAmount: number;
+  fourthPrizeAmount: number;
+  fifthPrizeAmount: number;
 }
 
 interface WinnerRow {
   ticketId: number;
   tier: PrizeTier;
-  amount: Prisma.Decimal;
+  /** The full prize the ticket won (tier base × series multiplier), before the MLM win-commission cut. */
+  grossAmount: Prisma.Decimal;
   agentId: number | null;
+  receiptId: number | null;
 }
 
 const resultDetailInclude = {
@@ -38,7 +46,7 @@ const resultDetailInclude = {
     include: {
       ticket: {
         include: {
-          series: { select: { id: true, name: true } },
+          series: { select: { id: true, name: true, multiplier: true } },
           soldByAgent: { select: { id: true, name: true } },
           soldToCustomer: true,
         },
@@ -61,6 +69,25 @@ async function resolveFirstPrizeTicket(tx: Prisma.TransactionClient, ticketNumbe
   return ticket;
 }
 
+/** Prize amounts on a DrawResult are stored as the 1-SEM base. Each winning ticket is actually
+ *  paid base × its series multiplier — a 2-SEM ticket wins double, a 3-SEM ticket triple, etc.
+ *  (mirrors ticket pricing, where price = multiplier × ticket base price). */
+function scalePrize(baseAmount: number, seriesMultiplier: Prisma.Decimal) {
+  return round2(new Prisma.Decimal(baseAmount).times(seriesMultiplier));
+}
+
+/** The 1-SEM base prize amounts every result uses, taken from the admin's Prize Settings page. */
+async function resolvePrizeBase(): Promise<PrizeBaseAmounts> {
+  const d = await getDefaultPrizeAmounts();
+  return {
+    firstPrizeAmount: d.firstPrizeAmount,
+    secondPrizeAmount: d.secondPrizeAmount,
+    thirdPrizeAmount: d.thirdPrizeAmount,
+    fourthPrizeAmount: d.fourthPrizeAmount,
+    fifthPrizeAmount: d.fifthPrizeAmount,
+  };
+}
+
 /** Walks every SOLD ticket in the slot/date once, matching it against the prize number patterns in
  *  priority order (1st > 2nd > 3rd > 4th > 5th) so a ticket can win at most one tier per draw. */
 async function computeWinners(
@@ -70,20 +97,18 @@ async function computeWinners(
     drawDate: Date;
     firstPrizeTicketId: number;
     firstPrizeTicketAgentId: number | null;
-    firstPrizeAmount: number;
-    secondPrizeAmount: number;
+    firstPrizeTicketReceiptId: number | null;
+    prizeBase: PrizeBaseAmounts;
     secondPrizeNumbers: string[];
-    thirdPrizeAmount: number;
     thirdPrizeNumbers: string[];
-    fourthPrizeAmount: number;
     fourthPrizeNumbers: string[];
-    fifthPrizeAmount: number;
     fifthPrizeNumbers: string[];
   },
 ): Promise<WinnerRow[]> {
+  const { prizeBase } = params;
   const soldTickets = await tx.ticket.findMany({
     where: { drawSlotId: params.drawSlotId, drawDate: params.drawDate, status: 'SOLD' },
-    select: { id: true, ticketNumber: true, soldByAgentId: true },
+    select: { id: true, ticketNumber: true, soldByAgentId: true, receiptId: true, series: { select: { multiplier: true } } },
   });
 
   const secondSet = new Set(params.secondPrizeNumbers);
@@ -91,30 +116,41 @@ async function computeWinners(
   const fourthSet = new Set(params.fourthPrizeNumbers);
   const fifthSet = new Set(params.fifthPrizeNumbers);
 
+  // The first prize ticket is always SOLD (resolveFirstPrizeTicket enforces it), so it's in this
+  // list — pull its series multiplier from there, defaulting to 1× if it somehow isn't.
+  const firstPrizeSem = soldTickets.find((t) => t.id === params.firstPrizeTicketId)?.series.multiplier ?? new Prisma.Decimal(1);
+
   const winners: WinnerRow[] = [
-    { ticketId: params.firstPrizeTicketId, tier: 'FIRST', amount: round2(params.firstPrizeAmount), agentId: params.firstPrizeTicketAgentId },
+    {
+      ticketId: params.firstPrizeTicketId,
+      tier: 'FIRST',
+      grossAmount: scalePrize(prizeBase.firstPrizeAmount, firstPrizeSem),
+      agentId: params.firstPrizeTicketAgentId,
+      receiptId: params.firstPrizeTicketReceiptId,
+    },
   ];
   const assigned = new Set<number>([params.firstPrizeTicketId]);
 
   for (const ticket of soldTickets) {
     if (assigned.has(ticket.id)) continue;
+    const sem = ticket.series.multiplier;
 
     const suffix5 = ticketNumberSuffix(ticket.ticketNumber, 5);
     if (secondSet.has(suffix5)) {
-      winners.push({ ticketId: ticket.id, tier: 'SECOND', amount: round2(params.secondPrizeAmount), agentId: ticket.soldByAgentId });
+      winners.push({ ticketId: ticket.id, tier: 'SECOND', grossAmount: scalePrize(prizeBase.secondPrizeAmount, sem), agentId: ticket.soldByAgentId, receiptId: ticket.receiptId });
       assigned.add(ticket.id);
       continue;
     }
 
     const suffix4 = ticketNumberSuffix(ticket.ticketNumber, 4);
     if (thirdSet.has(suffix4)) {
-      winners.push({ ticketId: ticket.id, tier: 'THIRD', amount: round2(params.thirdPrizeAmount), agentId: ticket.soldByAgentId });
+      winners.push({ ticketId: ticket.id, tier: 'THIRD', grossAmount: scalePrize(prizeBase.thirdPrizeAmount, sem), agentId: ticket.soldByAgentId, receiptId: ticket.receiptId });
       assigned.add(ticket.id);
     } else if (fourthSet.has(suffix4)) {
-      winners.push({ ticketId: ticket.id, tier: 'FOURTH', amount: round2(params.fourthPrizeAmount), agentId: ticket.soldByAgentId });
+      winners.push({ ticketId: ticket.id, tier: 'FOURTH', grossAmount: scalePrize(prizeBase.fourthPrizeAmount, sem), agentId: ticket.soldByAgentId, receiptId: ticket.receiptId });
       assigned.add(ticket.id);
     } else if (fifthSet.has(suffix4)) {
-      winners.push({ ticketId: ticket.id, tier: 'FIFTH', amount: round2(params.fifthPrizeAmount), agentId: ticket.soldByAgentId });
+      winners.push({ ticketId: ticket.id, tier: 'FIFTH', grossAmount: scalePrize(prizeBase.fifthPrizeAmount, sem), agentId: ticket.soldByAgentId, receiptId: ticket.receiptId });
       assigned.add(ticket.id);
     }
   }
@@ -122,16 +158,23 @@ async function computeWinners(
   return winners;
 }
 
-/** Credits each winning ticket's selling agent with its prize amount — one wallet update and
- *  ledger row per agent (aggregated across all of that agent's winning tickets in this result),
- *  not one per ticket. */
-async function creditWinnerWallets(tx: Prisma.TransactionClient, drawResultId: number, winners: WinnerRow[]) {
+/** Credits each winning ticket's selling agent with its NET prize (gross minus the win-commission
+ *  cut paid up their chain) — one wallet update and ledger row per agent, aggregated across all of
+ *  that agent's winning tickets in this result. */
+async function creditWinnerWallets(
+  tx: Prisma.TransactionClient,
+  drawResultId: number,
+  winners: WinnerRow[],
+  netByTicket: Map<number, Prisma.Decimal>,
+) {
   const totalsByAgent = new Map<number, Prisma.Decimal>();
   for (const w of winners) {
     if (!w.agentId) continue;
-    totalsByAgent.set(w.agentId, (totalsByAgent.get(w.agentId) ?? new Prisma.Decimal(0)).plus(w.amount));
+    const net = netByTicket.get(w.ticketId) ?? w.grossAmount;
+    totalsByAgent.set(w.agentId, (totalsByAgent.get(w.agentId) ?? new Prisma.Decimal(0)).plus(net));
   }
   for (const [agentId, amount] of totalsByAgent) {
+    if (amount.lessThanOrEqualTo(0)) continue;
     const updated = await tx.user.update({ where: { id: agentId }, data: { walletBalance: { increment: amount } } });
     await tx.walletTransaction.create({
       data: { userId: agentId, type: 'PRIZE', amount, balanceAfter: updated.walletBalance, refId: `WIN-${drawResultId}`, status: 'COMPLETED' },
@@ -159,12 +202,80 @@ async function reverseWinnerWallets(
   }
 }
 
-async function saveWinners(tx: Prisma.TransactionClient, drawResultId: number, winners: WinnerRow[]) {
+/**
+ * Records the winners of a declared result and distributes the prize pool for each winning ticket:
+ *  - MLM "win" commission up the seller's sponsor chain (winPercentage per level × the gross prize),
+ *    exactly like sale commission but on the prize amount;
+ *  - the remainder (gross − that commission cut) to the selling agent as their prize.
+ * The DrawResultWinner row keeps both the gross and the net so the deduction is always visible.
+ */
+async function saveWinnersAndDistributePrizePool(tx: Prisma.TransactionClient, drawResultId: number, winners: WinnerRow[]) {
+  const commissions = await computePrizeWinCommissions(tx, {
+    drawResultId,
+    winners: winners
+      .filter((w) => w.receiptId !== null)
+      .map((w) => ({ ticketId: w.ticketId, receiptId: w.receiptId as number, sellerAgentId: w.agentId, prizeAmount: w.grossAmount })),
+  });
+
+  // How much of each ticket's prize was allocated to its seller's upline as win commission.
+  const cutByTicket = new Map<number, Prisma.Decimal>();
+  for (const row of commissions.ledgerRows) {
+    const amount = new Prisma.Decimal(row.commissionAmount as Prisma.Decimal.Value);
+    cutByTicket.set(row.ticketId, (cutByTicket.get(row.ticketId) ?? new Prisma.Decimal(0)).plus(amount));
+  }
+  const netByTicket = new Map<number, Prisma.Decimal>();
+  for (const w of winners) {
+    const net = w.grossAmount.minus(cutByTicket.get(w.ticketId) ?? new Prisma.Decimal(0));
+    netByTicket.set(w.ticketId, net.greaterThan(0) ? net : new Prisma.Decimal(0));
+  }
+
   await tx.drawResultWinner.createMany({
-    data: winners.map((w) => ({ drawResultId, ticketId: w.ticketId, prizeTier: w.tier, prizeAmount: w.amount })),
+    data: winners.map((w) => ({
+      drawResultId,
+      ticketId: w.ticketId,
+      prizeTier: w.tier,
+      grossPrizeAmount: w.grossAmount,
+      prizeAmount: netByTicket.get(w.ticketId) ?? w.grossAmount,
+    })),
   });
   await tx.ticket.updateMany({ where: { id: { in: winners.map((w) => w.ticketId) } }, data: { status: 'WINNER' } });
-  await creditWinnerWallets(tx, drawResultId, winners);
+
+  await creditWinnerWallets(tx, drawResultId, winners, netByTicket);
+
+  // Pay the win commission up the chains.
+  if (commissions.ledgerRows.length > 0) {
+    await tx.commissionLedger.createMany({ data: commissions.ledgerRows });
+  }
+  for (const [agentId, amount] of commissions.walletCredits) {
+    const updated = await tx.user.update({ where: { id: agentId }, data: { walletBalance: { increment: amount } } });
+    await tx.walletTransaction.create({
+      data: { userId: agentId, type: 'COMMISSION', amount, balanceAfter: updated.walletBalance, refId: `WINCOMM-${drawResultId}`, status: 'COMPLETED' },
+    });
+  }
+}
+
+/** Undoes the win commission for a result before it's recomputed (edit) or removed (delete):
+ *  decrements the wallets that were paid, writes a REVERSED wallet transaction, and drops the WIN
+ *  ledger rows so the recompute starts clean. */
+async function reversePrizeWinCommissions(tx: Prisma.TransactionClient, drawResultId: number) {
+  const paidRows = await tx.commissionLedger.findMany({
+    where: { drawResultId, kind: 'WIN', status: 'PAID' },
+    select: { earningAgentId: true, commissionAmount: true },
+  });
+
+  const totalsByAgent = new Map<number, Prisma.Decimal>();
+  for (const r of paidRows) {
+    totalsByAgent.set(r.earningAgentId, (totalsByAgent.get(r.earningAgentId) ?? new Prisma.Decimal(0)).plus(r.commissionAmount));
+  }
+  for (const [agentId, amount] of totalsByAgent) {
+    if (amount.lessThanOrEqualTo(0)) continue;
+    const updated = await tx.user.update({ where: { id: agentId }, data: { walletBalance: { decrement: amount } } });
+    await tx.walletTransaction.create({
+      data: { userId: agentId, type: 'COMMISSION', amount: amount.negated(), balanceAfter: updated.walletBalance, refId: `WINCOMM-${drawResultId}-REVERSED`, status: 'REVERSED' },
+    });
+  }
+
+  await tx.commissionLedger.deleteMany({ where: { drawResultId, kind: 'WIN' } });
 }
 
 export async function declareResult(input: DeclareResultInput, actorId: number) {
@@ -175,6 +286,7 @@ export async function declareResult(input: DeclareResultInput, actorId: number) 
       // case. The `firstPrizeTicketId` unique index (+ the global P2002 handler) covers the narrow
       // concurrent-race case where two declares pick the same ticket before either commits.
       const firstTicket = await resolveFirstPrizeTicket(tx, input.firstPrizeTicketNumber, input.drawSlotId, input.drawDate);
+      const prizeBase = await resolvePrizeBase();
 
       const drawResult = await tx.drawResult.create({
         data: {
@@ -183,22 +295,33 @@ export async function declareResult(input: DeclareResultInput, actorId: number) 
           drawSlotId: input.drawSlotId,
           drawDate: input.drawDate,
           firstPrizeTicketId: firstTicket.id,
-          firstPrizeAmount: round2(input.firstPrizeAmount),
-          secondPrizeAmount: round2(input.secondPrizeAmount),
+          firstPrizeAmount: round2(prizeBase.firstPrizeAmount),
+          secondPrizeAmount: round2(prizeBase.secondPrizeAmount),
           secondPrizeNumbers: input.secondPrizeNumbers,
-          thirdPrizeAmount: round2(input.thirdPrizeAmount),
+          thirdPrizeAmount: round2(prizeBase.thirdPrizeAmount),
           thirdPrizeNumbers: input.thirdPrizeNumbers,
-          fourthPrizeAmount: round2(input.fourthPrizeAmount),
+          fourthPrizeAmount: round2(prizeBase.fourthPrizeAmount),
           fourthPrizeNumbers: input.fourthPrizeNumbers,
-          fifthPrizeAmount: round2(input.fifthPrizeAmount),
+          fifthPrizeAmount: round2(prizeBase.fifthPrizeAmount),
           fifthPrizePercentage: input.fifthPrizePercentage,
           fifthPrizeNumbers: input.fifthPrizeNumbers,
           declaredById: actorId,
         },
       });
 
-      const winners = await computeWinners(tx, { ...input, firstPrizeTicketId: firstTicket.id, firstPrizeTicketAgentId: firstTicket.soldByAgentId });
-      await saveWinners(tx, drawResult.id, winners);
+      const winners = await computeWinners(tx, {
+        drawSlotId: input.drawSlotId,
+        drawDate: input.drawDate,
+        firstPrizeTicketId: firstTicket.id,
+        firstPrizeTicketAgentId: firstTicket.soldByAgentId,
+        firstPrizeTicketReceiptId: firstTicket.receiptId,
+        prizeBase,
+        secondPrizeNumbers: input.secondPrizeNumbers,
+        thirdPrizeNumbers: input.thirdPrizeNumbers,
+        fourthPrizeNumbers: input.fourthPrizeNumbers,
+        fifthPrizeNumbers: input.fifthPrizeNumbers,
+      });
+      await saveWinnersAndDistributePrizePool(tx, drawResult.id, winners);
 
       await logActivity(tx, {
         actorId,
@@ -225,15 +348,17 @@ export async function updateResult(id: number, input: DeclareResultInput, actorI
       });
       if (!existing) throw ApiError.notFound('Result not found');
 
-      // Revert the previous declaration's winners — including the prize money already credited to
-      // sellers' wallets — before recomputing from the new inputs.
+      // Revert the previous declaration's winners — the prize money credited to sellers' wallets
+      // AND the MLM win commission paid up their uplines — before recomputing from the new inputs.
       await tx.ticket.updateMany({ where: { id: { in: existing.winners.map((w) => w.ticketId) } }, data: { status: 'SOLD' } });
       await reverseWinnerWallets(tx, id, existing.winners);
+      await reversePrizeWinCommissions(tx, id);
       await tx.drawResultWinner.deleteMany({ where: { drawResultId: id } });
 
       // Same reasoning as declareResult: any ticket currently in use as another result's first
       // prize is already WINNER status, so resolveFirstPrizeTicket's SOLD requirement rejects it.
       const firstTicket = await resolveFirstPrizeTicket(tx, input.firstPrizeTicketNumber, input.drawSlotId, input.drawDate);
+      const prizeBase = await resolvePrizeBase();
 
       const updated = await tx.drawResult.update({
         where: { id },
@@ -243,21 +368,32 @@ export async function updateResult(id: number, input: DeclareResultInput, actorI
           drawSlotId: input.drawSlotId,
           drawDate: input.drawDate,
           firstPrizeTicketId: firstTicket.id,
-          firstPrizeAmount: round2(input.firstPrizeAmount),
-          secondPrizeAmount: round2(input.secondPrizeAmount),
+          firstPrizeAmount: round2(prizeBase.firstPrizeAmount),
+          secondPrizeAmount: round2(prizeBase.secondPrizeAmount),
           secondPrizeNumbers: input.secondPrizeNumbers,
-          thirdPrizeAmount: round2(input.thirdPrizeAmount),
+          thirdPrizeAmount: round2(prizeBase.thirdPrizeAmount),
           thirdPrizeNumbers: input.thirdPrizeNumbers,
-          fourthPrizeAmount: round2(input.fourthPrizeAmount),
+          fourthPrizeAmount: round2(prizeBase.fourthPrizeAmount),
           fourthPrizeNumbers: input.fourthPrizeNumbers,
-          fifthPrizeAmount: round2(input.fifthPrizeAmount),
+          fifthPrizeAmount: round2(prizeBase.fifthPrizeAmount),
           fifthPrizePercentage: input.fifthPrizePercentage,
           fifthPrizeNumbers: input.fifthPrizeNumbers,
         },
       });
 
-      const winners = await computeWinners(tx, { ...input, firstPrizeTicketId: firstTicket.id, firstPrizeTicketAgentId: firstTicket.soldByAgentId });
-      await saveWinners(tx, updated.id, winners);
+      const winners = await computeWinners(tx, {
+        drawSlotId: input.drawSlotId,
+        drawDate: input.drawDate,
+        firstPrizeTicketId: firstTicket.id,
+        firstPrizeTicketAgentId: firstTicket.soldByAgentId,
+        firstPrizeTicketReceiptId: firstTicket.receiptId,
+        prizeBase,
+        secondPrizeNumbers: input.secondPrizeNumbers,
+        thirdPrizeNumbers: input.thirdPrizeNumbers,
+        fourthPrizeNumbers: input.fourthPrizeNumbers,
+        fifthPrizeNumbers: input.fifthPrizeNumbers,
+      });
+      await saveWinnersAndDistributePrizePool(tx, updated.id, winners);
 
       await logActivity(tx, {
         actorId,
@@ -285,6 +421,7 @@ export async function deleteResult(id: number, actorId: number) {
 
     await tx.ticket.updateMany({ where: { id: { in: existing.winners.map((w) => w.ticketId) } }, data: { status: 'SOLD' } });
     await reverseWinnerWallets(tx, id, existing.winners);
+    await reversePrizeWinCommissions(tx, id);
     await tx.drawResultWinner.deleteMany({ where: { drawResultId: id } });
     await tx.drawResult.delete({ where: { id } });
 
@@ -366,7 +503,7 @@ export async function listWinners(query: ListWinnersQuery, scopedAgentId?: numbe
       skip: (query.page - 1) * query.pageSize,
       take: query.pageSize,
       include: {
-        ticket: { include: { series: { select: { id: true, name: true } }, soldByAgent: { select: { id: true, name: true } }, soldToCustomer: true } },
+        ticket: { include: { series: { select: { id: true, name: true, multiplier: true } }, soldByAgent: { select: { id: true, name: true } }, soldToCustomer: true } },
         drawResult: { include: { drawSlot: true } },
       },
     }),

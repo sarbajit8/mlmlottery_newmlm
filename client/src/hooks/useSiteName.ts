@@ -2,13 +2,13 @@ import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { systemApi } from '@/api/system';
 
-const DEFAULT_COMPANY_NAME = 'FirstDialCab';
+const DEFAULT_COMPANY_NAME = 'FastDialCab';
 const DEFAULT_FAVICON_HREF = '/favicon.svg';
 const DEFAULT_FAVICON_TYPE = 'image/svg+xml';
 
 function initialsOf(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return 'BC';
+  if (words.length === 0) return 'FD';
   return words
     .slice(0, 2)
     .map((w) => w[0]!.toUpperCase())

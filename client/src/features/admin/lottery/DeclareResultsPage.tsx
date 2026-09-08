@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link, useNavigate } from 'react-router-dom';
 import { drawSlotsApi } from '@/api/drawSlots';
 import { ticketsApi } from '@/api/tickets';
 import { resultsApi } from '@/api/results';
@@ -10,22 +11,12 @@ import { Card, CardBody, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input, Select, Textarea } from '@/components/ui/Input';
 import { FormField } from '@/components/ui/FormField';
-import { Modal } from '@/components/ui/Modal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { toast } from '@/store/toastStore';
-import { formatCurrency, formatDate, todayIso } from '@/utils/format';
+import { formatDate, todayIso } from '@/utils/format';
 import { generateUniqueNumbers, formatNumberList, parseNumberList } from '@/utils/lotteryNumbers';
 import { IconPlus, IconSettings, IconTrash, IconTrophy } from '@/components/ui/icons';
-import type { DrawResultInput, DrawResultListItem, PrizeAmountDefaults, PrizeTier } from '@/types/api';
-
-const DEFAULT_PRIZE_AMOUNTS: PrizeAmountDefaults = {
-  firstPrizeAmount: 0,
-  secondPrizeAmount: 0,
-  thirdPrizeAmount: 0,
-  fourthPrizeAmount: 0,
-  fifthPrizeAmount: 0,
-  fifthPrizePercentage: 50,
-};
+import type { DrawResultInput, DrawResultListItem, PrizeTier } from '@/types/api';
 
 interface FormState {
   drawName: string;
@@ -33,14 +24,9 @@ interface FormState {
   drawSlotId: string;
   drawDate: string;
   firstPrizeTicketNumber: string;
-  firstPrizeAmount: string;
-  secondPrizeAmount: string;
   secondPrizeNumbersText: string;
-  thirdPrizeAmount: string;
   thirdPrizeNumbersText: string;
-  fourthPrizeAmount: string;
   fourthPrizeNumbersText: string;
-  fifthPrizeAmount: string;
   fifthPrizePercentage: string;
   fifthPrizeNumbersText: string;
 }
@@ -51,14 +37,9 @@ const emptyForm: FormState = {
   drawSlotId: '',
   drawDate: todayIso(),
   firstPrizeTicketNumber: '',
-  firstPrizeAmount: '',
-  secondPrizeAmount: '',
   secondPrizeNumbersText: '',
-  thirdPrizeAmount: '',
   thirdPrizeNumbersText: '',
-  fourthPrizeAmount: '',
   fourthPrizeNumbersText: '',
-  fifthPrizeAmount: '',
   fifthPrizePercentage: '50',
   fifthPrizeNumbersText: '',
 };
@@ -67,6 +48,7 @@ const tierLabel: Record<PrizeTier, string> = { FIRST: '1st', SECOND: '2nd', THIR
 
 export function DeclareResultsPage() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [view, setView] = useState<'list' | 'form'>('list');
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -82,54 +64,12 @@ export function DeclareResultsPage() {
   });
   const { data: appSettings } = useQuery({ queryKey: ['app-settings'], queryFn: systemApi.settings });
 
-  // Admin-configured position-wise defaults — pre-fill a new result's amounts so they don't have
-  // to be retyped every draw; still freely editable per result before saving.
-  const prizeDefaults: PrizeAmountDefaults = useMemo(() => {
-    const raw = appSettings?.find((s) => s.key === 'defaultPrizeAmounts')?.value;
-    return raw && typeof raw === 'object' ? { ...DEFAULT_PRIZE_AMOUNTS, ...(raw as Partial<PrizeAmountDefaults>) } : DEFAULT_PRIZE_AMOUNTS;
+  // Only used to pre-fill the draw-specific 5th-prize percentage; all prize *amounts* now live on
+  // the Prize Settings page and are applied server-side.
+  const defaultFifthPercentage = useMemo(() => {
+    const raw = appSettings?.find((s) => s.key === 'defaultPrizeAmounts')?.value as { fifthPrizePercentage?: number } | undefined;
+    return raw && typeof raw === 'object' && raw.fifthPrizePercentage != null ? String(raw.fifthPrizePercentage) : '50';
   }, [appSettings]);
-
-  const [prizeSettingsOpen, setPrizeSettingsOpen] = useState(false);
-  const [defaultsForm, setDefaultsForm] = useState({
-    firstPrizeAmount: '',
-    secondPrizeAmount: '',
-    thirdPrizeAmount: '',
-    fourthPrizeAmount: '',
-    fifthPrizeAmount: '',
-    fifthPrizePercentage: '50',
-  });
-  const [defaultsError, setDefaultsError] = useState<string | null>(null);
-
-  function openPrizeSettings() {
-    setDefaultsForm({
-      firstPrizeAmount: prizeDefaults.firstPrizeAmount ? String(prizeDefaults.firstPrizeAmount) : '',
-      secondPrizeAmount: prizeDefaults.secondPrizeAmount ? String(prizeDefaults.secondPrizeAmount) : '',
-      thirdPrizeAmount: prizeDefaults.thirdPrizeAmount ? String(prizeDefaults.thirdPrizeAmount) : '',
-      fourthPrizeAmount: prizeDefaults.fourthPrizeAmount ? String(prizeDefaults.fourthPrizeAmount) : '',
-      fifthPrizeAmount: prizeDefaults.fifthPrizeAmount ? String(prizeDefaults.fifthPrizeAmount) : '',
-      fifthPrizePercentage: String(prizeDefaults.fifthPrizePercentage ?? 50),
-    });
-    setDefaultsError(null);
-    setPrizeSettingsOpen(true);
-  }
-
-  const saveDefaultsMut = useMutation({
-    mutationFn: () =>
-      systemApi.upsertSetting('defaultPrizeAmounts', {
-        firstPrizeAmount: Number(defaultsForm.firstPrizeAmount) || 0,
-        secondPrizeAmount: Number(defaultsForm.secondPrizeAmount) || 0,
-        thirdPrizeAmount: Number(defaultsForm.thirdPrizeAmount) || 0,
-        fourthPrizeAmount: Number(defaultsForm.fourthPrizeAmount) || 0,
-        fifthPrizeAmount: Number(defaultsForm.fifthPrizeAmount) || 0,
-        fifthPrizePercentage: Number(defaultsForm.fifthPrizePercentage) || 0,
-      } satisfies PrizeAmountDefaults),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['app-settings'] });
-      toast.success('Default prize amounts saved');
-      setPrizeSettingsOpen(false);
-    },
-    onError: (err) => setDefaultsError(apiErrorMessage(err)),
-  });
 
   const soldCountForSlot = useMemo(() => {
     if (!form.drawSlotId) return 0;
@@ -138,15 +78,7 @@ export function DeclareResultsPage() {
 
   function openCreate() {
     setEditingId(null);
-    setForm({
-      ...emptyForm,
-      firstPrizeAmount: prizeDefaults.firstPrizeAmount ? String(prizeDefaults.firstPrizeAmount) : '',
-      secondPrizeAmount: prizeDefaults.secondPrizeAmount ? String(prizeDefaults.secondPrizeAmount) : '',
-      thirdPrizeAmount: prizeDefaults.thirdPrizeAmount ? String(prizeDefaults.thirdPrizeAmount) : '',
-      fourthPrizeAmount: prizeDefaults.fourthPrizeAmount ? String(prizeDefaults.fourthPrizeAmount) : '',
-      fifthPrizeAmount: prizeDefaults.fifthPrizeAmount ? String(prizeDefaults.fifthPrizeAmount) : '',
-      fifthPrizePercentage: String(prizeDefaults.fifthPrizePercentage ?? 50),
-    });
+    setForm({ ...emptyForm, fifthPrizePercentage: defaultFifthPercentage });
     setError(null);
     setView('form');
   }
@@ -160,14 +92,9 @@ export function DeclareResultsPage() {
       drawSlotId: String(r.drawSlotId),
       drawDate: r.drawDate.slice(0, 10),
       firstPrizeTicketNumber: r.firstPrizeTicket.ticketNumber,
-      firstPrizeAmount: r.firstPrizeAmount,
-      secondPrizeAmount: r.secondPrizeAmount,
       secondPrizeNumbersText: r.secondPrizeNumbers.join(', '),
-      thirdPrizeAmount: r.thirdPrizeAmount,
       thirdPrizeNumbersText: r.thirdPrizeNumbers.join(', '),
-      fourthPrizeAmount: r.fourthPrizeAmount,
       fourthPrizeNumbersText: r.fourthPrizeNumbers.join(', '),
-      fifthPrizeAmount: r.fifthPrizeAmount,
       fifthPrizePercentage: r.fifthPrizePercentage,
       fifthPrizeNumbersText: r.fifthPrizeNumbers.join(', '),
     });
@@ -212,14 +139,9 @@ export function DeclareResultsPage() {
       drawSlotId: Number(form.drawSlotId),
       drawDate: form.drawDate,
       firstPrizeTicketNumber: form.firstPrizeTicketNumber,
-      firstPrizeAmount: Number(form.firstPrizeAmount) || 0,
-      secondPrizeAmount: Number(form.secondPrizeAmount) || 0,
       secondPrizeNumbers: parseNumberList(form.secondPrizeNumbersText),
-      thirdPrizeAmount: Number(form.thirdPrizeAmount) || 0,
       thirdPrizeNumbers: parseNumberList(form.thirdPrizeNumbersText),
-      fourthPrizeAmount: Number(form.fourthPrizeAmount) || 0,
       fourthPrizeNumbers: parseNumberList(form.fourthPrizeNumbersText),
-      fifthPrizeAmount: Number(form.fifthPrizeAmount) || 0,
       fifthPrizePercentage: Number(form.fifthPrizePercentage) || 0,
       fifthPrizeNumbers: parseNumberList(form.fifthPrizeNumbersText),
     };
@@ -289,11 +211,11 @@ export function DeclareResultsPage() {
       <div>
         <PageHeader
           title="All Result Entry"
-          description="Declared lottery results across every draw slot."
+          description="Declared lottery results across every draw slot. Prize amounts come from Prize Settings."
           actions={
             <div className="flex flex-wrap gap-2">
-              <Button variant="secondary" icon={<IconSettings className="h-4 w-4" />} onClick={openPrizeSettings}>
-                Prize Amount Defaults
+              <Button variant="secondary" icon={<IconSettings className="h-4 w-4" />} onClick={() => navigate('/admin/prize-settings')}>
+                Prize Settings
               </Button>
               <Button icon={<IconPlus className="h-4 w-4" />} onClick={openCreate}>
                 Add New Result
@@ -306,38 +228,6 @@ export function DeclareResultsPage() {
             <DataTable columns={columns} data={results?.items ?? []} rowKey={(r) => r.id} loading={listLoading} total={results?.total} page={listPage} pageSize={15} onPageChange={setListPage} emptyTitle="No results declared yet" />
           </div>
         </Card>
-
-        <Modal open={prizeSettingsOpen} onClose={() => setPrizeSettingsOpen(false)} title="Prize Amount Defaults">
-          <form onSubmit={(e) => { e.preventDefault(); saveDefaultsMut.mutate(); }} className="space-y-4">
-            <p className="text-sm text-slate-400">
-              Set once here, per prize position — every new result pre-fills these amounts. Still editable per draw before saving.
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              <FormField label="1st Prize Amount">
-                <Input type="number" min="0" value={defaultsForm.firstPrizeAmount} onChange={(e) => setDefaultsForm({ ...defaultsForm, firstPrizeAmount: e.target.value })} />
-              </FormField>
-              <FormField label="2nd Prize Amount">
-                <Input type="number" min="0" value={defaultsForm.secondPrizeAmount} onChange={(e) => setDefaultsForm({ ...defaultsForm, secondPrizeAmount: e.target.value })} />
-              </FormField>
-              <FormField label="3rd Prize Amount">
-                <Input type="number" min="0" value={defaultsForm.thirdPrizeAmount} onChange={(e) => setDefaultsForm({ ...defaultsForm, thirdPrizeAmount: e.target.value })} />
-              </FormField>
-              <FormField label="4th Prize Amount">
-                <Input type="number" min="0" value={defaultsForm.fourthPrizeAmount} onChange={(e) => setDefaultsForm({ ...defaultsForm, fourthPrizeAmount: e.target.value })} />
-              </FormField>
-              <FormField label="5th Prize Amount">
-                <Input type="number" min="0" value={defaultsForm.fifthPrizeAmount} onChange={(e) => setDefaultsForm({ ...defaultsForm, fifthPrizeAmount: e.target.value })} />
-              </FormField>
-              <FormField label="5th Prize %" hint="Share of active tickets">
-                <Input type="number" min="0" max="100" step="0.1" value={defaultsForm.fifthPrizePercentage} onChange={(e) => setDefaultsForm({ ...defaultsForm, fifthPrizePercentage: e.target.value })} />
-              </FormField>
-            </div>
-            {defaultsError && <p className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300">{defaultsError}</p>}
-            <Button type="submit" className="w-full" loading={saveDefaultsMut.isPending}>
-              Save Defaults
-            </Button>
-          </form>
-        </Modal>
       </div>
     );
   }
@@ -352,7 +242,7 @@ export function DeclareResultsPage() {
     <div>
       <PageHeader
         title={editingId ? 'Edit Result' : 'Add New Result'}
-        description="Every winning ticket's prize amount is credited straight to the selling agent's wallet as soon as you save."
+        description="Enter the winning ticket & number patterns only. Prize amounts are taken from Prize Settings and paid to each winning ticket as base × its series multiplier, straight to the selling agent's wallet."
         actions={
           <Button variant="secondary" onClick={() => setView('list')}>
             ← Back to Results
@@ -398,7 +288,7 @@ export function DeclareResultsPage() {
                 </Button>
               </div>
             </FormField>
-            <FormField label="Percentage" required hint="Percentage of active tickets for 5th prize">
+            <FormField label="5th Prize Pool %" required hint="Share of this draw's sold tickets that win 5th prize (quantity, not money)">
               <Input type="number" min="0" max="100" step="0.1" required value={form.fifthPrizePercentage} onChange={(e) => setForm({ ...form, fifthPrizePercentage: e.target.value })} />
             </FormField>
           </div>
@@ -411,56 +301,33 @@ export function DeclareResultsPage() {
           </div>
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <div className="space-y-2">
-              <FormField label={`Second Prize (${secondCount} Numbers – 5 digits)`} hint="Exactly 10 unique 5-digit numbers">
-                <Textarea rows={4} value={form.secondPrizeNumbersText} onChange={(e) => setForm({ ...form, secondPrizeNumbersText: e.target.value })} placeholder="Enter 10 unique 5-digit numbers separated by commas" />
-              </FormField>
-              <FormField label="Second Prize Amount" required>
-                <Input type="number" min="0" required value={form.secondPrizeAmount} onChange={(e) => setForm({ ...form, secondPrizeAmount: e.target.value })} />
-              </FormField>
-            </div>
+            <FormField label={`Second Prize (${secondCount} Numbers – 5 digits)`} hint="Exactly 10 unique 5-digit numbers">
+              <Textarea rows={4} value={form.secondPrizeNumbersText} onChange={(e) => setForm({ ...form, secondPrizeNumbersText: e.target.value })} placeholder="Enter 10 unique 5-digit numbers separated by commas" />
+            </FormField>
 
-            <div className="space-y-2">
-              <FormField label={`Fifth Prize (${fifthCount} Numbers – 4 digits)`} hint={`Suggested: ~${suggestedFifthCount} unique 4-digit numbers (different from 3rd and 4th prizes)`}>
-                <Textarea rows={4} value={form.fifthPrizeNumbersText} onChange={(e) => setForm({ ...form, fifthPrizeNumbersText: e.target.value })} placeholder="Enter numbers separated by commas" />
-              </FormField>
-              <FormField label="Fifth Prize Amount" required>
-                <Input type="number" min="0" required value={form.fifthPrizeAmount} onChange={(e) => setForm({ ...form, fifthPrizeAmount: e.target.value })} />
-              </FormField>
-            </div>
+            <FormField label={`Fifth Prize (${fifthCount} Numbers – 4 digits)`} hint={`Suggested: ~${suggestedFifthCount} unique 4-digit numbers (different from 3rd and 4th prizes)`}>
+              <Textarea rows={4} value={form.fifthPrizeNumbersText} onChange={(e) => setForm({ ...form, fifthPrizeNumbersText: e.target.value })} placeholder="Enter numbers separated by commas" />
+            </FormField>
 
-            <div className="space-y-2">
-              <FormField label={`Third Prize (${thirdCount} Numbers – 4 digits)`} hint="Exactly 10 unique 4-digit numbers">
-                <Textarea rows={4} value={form.thirdPrizeNumbersText} onChange={(e) => setForm({ ...form, thirdPrizeNumbersText: e.target.value })} placeholder="Enter 10 unique 4-digit numbers separated by commas" />
-              </FormField>
-              <FormField label="Third Prize Amount" required>
-                <Input type="number" min="0" required value={form.thirdPrizeAmount} onChange={(e) => setForm({ ...form, thirdPrizeAmount: e.target.value })} />
-              </FormField>
-            </div>
+            <FormField label={`Third Prize (${thirdCount} Numbers – 4 digits)`} hint="Exactly 10 unique 4-digit numbers">
+              <Textarea rows={4} value={form.thirdPrizeNumbersText} onChange={(e) => setForm({ ...form, thirdPrizeNumbersText: e.target.value })} placeholder="Enter 10 unique 4-digit numbers separated by commas" />
+            </FormField>
 
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <FormField label={`Fourth Prize (${fourthCount} Numbers – 4 digits)`} hint="Exactly 10 unique 4-digit numbers (different from 3rd prize)">
-                  <Textarea rows={4} value={form.fourthPrizeNumbersText} onChange={(e) => setForm({ ...form, fourthPrizeNumbersText: e.target.value })} placeholder="Enter 10 unique 4-digit numbers separated by commas" />
-                </FormField>
-                <FormField label="Fourth Prize Amount" required>
-                  <Input type="number" min="0" required value={form.fourthPrizeAmount} onChange={(e) => setForm({ ...form, fourthPrizeAmount: e.target.value })} />
-                </FormField>
-              </div>
+            <FormField label={`Fourth Prize (${fourthCount} Numbers – 4 digits)`} hint="Exactly 10 unique 4-digit numbers (different from 3rd prize)">
+              <Textarea rows={4} value={form.fourthPrizeNumbersText} onChange={(e) => setForm({ ...form, fourthPrizeNumbersText: e.target.value })} placeholder="Enter 10 unique 4-digit numbers separated by commas" />
+            </FormField>
+          </div>
 
-              <FormField label="First Prize Amount" required>
-                <Input type="number" min="0" required value={form.firstPrizeAmount} onChange={(e) => setForm({ ...form, firstPrizeAmount: e.target.value })} />
-              </FormField>
-
-              <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4">
-                <p className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-amber-300">⚠ Important Rules:</p>
-                <ul className="list-disc space-y-1 pl-5 text-xs text-amber-200/80">
-                  <li>No duplicate 4-digit numbers between 3rd, 4th, and 5th prizes</li>
-                  <li>All numbers must be unique within each prize category</li>
-                  <li>System will validate before saving</li>
-                </ul>
-              </div>
-            </div>
+          <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4">
+            <p className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-amber-300">⚠ Important Rules:</p>
+            <ul className="list-disc space-y-1 pl-5 text-xs text-amber-200/80">
+              <li>
+                Prize amounts are set once on the <Link to="/admin/prize-settings" className="underline">Prize Settings</Link> page — each winner is paid base × its series multiplier
+              </li>
+              <li>No duplicate 4-digit numbers between 3rd, 4th, and 5th prizes</li>
+              <li>All numbers must be unique within each prize category</li>
+              <li>System will validate before saving</li>
+            </ul>
           </div>
 
           {error && <p className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300">{error}</p>}

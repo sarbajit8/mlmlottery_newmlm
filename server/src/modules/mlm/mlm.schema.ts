@@ -2,7 +2,8 @@ import { z } from 'zod';
 
 export const levelPercentageSchema = z.object({
   levelNumber: z.number().int().min(1),
-  percentage: z.coerce.number().min(0).max(100),
+  percentage: z.coerce.number().min(0).max(100), // sale commission %
+  winPercentage: z.coerce.number().min(0).max(100).default(0), // prize-win commission %
 });
 
 export const updateMlmSettingsSchema = z.object({

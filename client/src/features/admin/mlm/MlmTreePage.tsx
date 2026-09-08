@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { mlmApi } from '@/api/mlm';
 import { usersApi } from '@/api/users';
+import { apiErrorMessage } from '@/api/axiosClient';
 import { useAuth } from '@/hooks/useAuth';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
@@ -28,7 +29,7 @@ export function MlmTreePage() {
   const [view, setView] = useState<'tree' | 'flat'>('tree');
 
   const { data: users } = useQuery({ queryKey: ['users-all'], queryFn: () => usersApi.list({ pageSize: 100 }) });
-  const { data: tree, isLoading } = useQuery({
+  const { data: tree, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['mlm-tree', rootId],
     queryFn: () => mlmApi.getTree(rootId!),
     enabled: rootId !== null,
@@ -70,15 +71,31 @@ export function MlmTreePage() {
         }
       />
 
+      {rootId === null && <p className="text-sm text-slate-500">Pick an agent to view their downline.</p>}
       {isLoading && <p className="text-sm text-slate-500">Loading tree…</p>}
 
-      {!isLoading && tree && view === 'tree' && (
-        <Card className="h-[65vh] overflow-hidden">
-          <OrgTree root={tree} accent="amber" />
+      {isError && (
+        <Card className="p-6 text-sm">
+          <p className="text-red-300">Couldn't load the tree: {apiErrorMessage(error)}</p>
+          <Button size="sm" variant="secondary" className="mt-3" onClick={() => refetch()}>
+            Retry
+          </Button>
         </Card>
       )}
 
-      {!isLoading && tree && view === 'flat' && (
+      {!isLoading && !isError && tree && view === 'tree' && (
+        <Card className="h-[65vh] overflow-hidden">
+          {tree.children.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-center text-sm text-slate-500">
+              {tree.name} has no downline yet.
+            </div>
+          ) : (
+            <OrgTree root={tree} accent="amber" />
+          )}
+        </Card>
+      )}
+
+      {!isLoading && !isError && tree && view === 'flat' && (
         <Card>
           <DataTable columns={columns} data={flatRows} rowKey={(r) => r.id} emptyTitle="No downline yet" />
         </Card>

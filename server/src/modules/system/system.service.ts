@@ -48,8 +48,8 @@ export async function getAppSetting(key: string) {
   return prisma.appSetting.findUnique({ where: { key } });
 }
 
-const DEFAULT_COMPANY_NAME = 'FirstDialCab';
-const DEFAULT_TICKET_BASE_PRICE = 10;
+const DEFAULT_COMPANY_NAME = 'FastDialCab';
+const DEFAULT_TICKET_BASE_PRICE = 7;
 
 /** The single admin-configured ticket price (AppSetting key "ticketBasePrice") that every series
  *  scales from: a series' final ticket price = this x that series' own multiplier. */
@@ -112,6 +112,39 @@ export async function getPublicSettings() {
   const companyName = typeof nameSetting?.value === 'string' && nameSetting.value.trim() ? nameSetting.value.trim() : DEFAULT_COMPANY_NAME;
   const logoUrl = typeof logoSetting?.value === 'string' && logoSetting.value.trim() ? logoSetting.value.trim() : null;
   return { companyName, logoUrl, ticketBasePrice };
+}
+
+export interface PrizeAmountDefaults {
+  firstPrizeAmount: number;
+  secondPrizeAmount: number;
+  thirdPrizeAmount: number;
+  fourthPrizeAmount: number;
+  fifthPrizeAmount: number;
+  fifthPrizePercentage: number;
+}
+
+const DEFAULT_PRIZE_AMOUNTS: PrizeAmountDefaults = {
+  firstPrizeAmount: 0,
+  secondPrizeAmount: 0,
+  thirdPrizeAmount: 0,
+  fourthPrizeAmount: 0,
+  fifthPrizeAmount: 0,
+  fifthPrizePercentage: 50,
+};
+
+/** Admin-configured 1-SEM base prize amounts (AppSetting key "defaultPrizeAmounts", set on the
+ *  Prize Settings page). Declaring a result no longer takes per-prize amounts — they always come
+ *  from here, and each winning ticket is paid the base × its series multiplier. */
+export async function getDefaultPrizeAmounts(): Promise<PrizeAmountDefaults> {
+  const setting = await prisma.appSetting.findUnique({ where: { key: 'defaultPrizeAmounts' } });
+  const raw = setting?.value;
+  if (!raw || typeof raw !== 'object') return DEFAULT_PRIZE_AMOUNTS;
+  const merged = { ...DEFAULT_PRIZE_AMOUNTS, ...(raw as Partial<PrizeAmountDefaults>) };
+  for (const key of Object.keys(DEFAULT_PRIZE_AMOUNTS) as (keyof PrizeAmountDefaults)[]) {
+    const n = Number(merged[key]);
+    merged[key] = Number.isFinite(n) && n >= 0 ? n : DEFAULT_PRIZE_AMOUNTS[key];
+  }
+  return merged;
 }
 
 export async function listAppSettings() {

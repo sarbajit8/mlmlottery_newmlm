@@ -3,6 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { drawSlotsApi } from '@/api/drawSlots';
 import { seriesApi } from '@/api/series';
+import { systemApi } from '@/api/system';
 import { ticketsApi, type PreviewResult } from '@/api/tickets';
 import { apiErrorMessage } from '@/api/axiosClient';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -18,6 +19,8 @@ export function GenerateTicketsPage() {
   const navigate = useNavigate();
   const { data: slots } = useQuery({ queryKey: ['draw-slots'], queryFn: drawSlotsApi.list });
   const { data: seriesList } = useQuery({ queryKey: ['series'], queryFn: seriesApi.list });
+  const { data: publicSettings } = useQuery({ queryKey: ['public-settings'], queryFn: systemApi.publicSettings });
+  const ticketBasePrice = publicSettings?.ticketBasePrice ?? 0;
 
   const [form, setForm] = useState({
     drawDate: todayIso(),
@@ -34,6 +37,10 @@ export function GenerateTicketsPage() {
   useEffect(() => setPreview(null), [form.drawSlotId, form.seriesId, form.prefix, form.startNumber, form.quantity, form.pricePerTicket]);
 
   const selectedSeries = seriesList?.find((s) => s.id === Number(form.seriesId));
+  const selectedMultiplier = selectedSeries ? Number(selectedSeries.multiplier) : 0;
+  // The "Ticket Value" field is the per-SEM (1x) base for this batch; blank => the global base price.
+  const effectiveUnitValue = form.pricePerTicket ? Number(form.pricePerTicket) || 0 : ticketBasePrice;
+  const computedTicketPrice = effectiveUnitValue * selectedMultiplier;
 
   function buildInput() {
     return {
@@ -69,7 +76,10 @@ export function GenerateTicketsPage() {
 
   return (
     <div>
-      <PageHeader title="Generate Tickets" description="Bulk-generate a batch of tickets for a draw date, slot and series." />
+      <PageHeader
+        title="Generate Tickets"
+        description="Bulk-generate a batch for a draw date, slot and series. SEM value and price = ticket value (per SEM) × the series multiplier."
+      />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
         <Card className="lg:col-span-3">
@@ -97,17 +107,14 @@ export function GenerateTicketsPage() {
               <Select
                 required
                 value={form.seriesId}
-                onChange={(e) => {
-                  const s = seriesList?.find((x) => x.id === Number(e.target.value));
-                  setForm({ ...form, seriesId: e.target.value, pricePerTicket: s ? s.semValue : form.pricePerTicket });
-                }}
+                onChange={(e) => setForm({ ...form, seriesId: e.target.value })}
               >
                 <option value="">Select series</option>
                 {seriesList
                   ?.filter((s) => s.status === 'ACTIVE')
                   .map((s) => (
                     <option key={s.id} value={s.id}>
-                      {s.name} — {Number(s.multiplier)}x
+                      {s.name} — {Number(s.multiplier)}×
                     </option>
                   ))}
               </Select>
@@ -126,8 +133,22 @@ export function GenerateTicketsPage() {
               <FormField label="Bundle Quantity" required>
                 <Input type="number" min="1" max="50000" required value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} />
               </FormField>
-              <FormField label="Ticket Price" hint={selectedSeries ? `Defaults to SEM value ${formatCurrency(selectedSeries.semValue)}` : undefined}>
-                <Input type="number" min="0.01" step="0.01" value={form.pricePerTicket} onChange={(e) => setForm({ ...form, pricePerTicket: e.target.value })} placeholder="Auto" />
+              <FormField
+                label="Ticket Value (per SEM)"
+                hint={
+                  selectedSeries
+                    ? `Blank uses base ${formatCurrency(ticketBasePrice)}. SEM value = price = value × ${selectedMultiplier}× = ${formatCurrency(computedTicketPrice)}`
+                    : `Blank uses the global base price (${formatCurrency(ticketBasePrice)})`
+                }
+              >
+                <Input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={form.pricePerTicket}
+                  onChange={(e) => setForm({ ...form, pricePerTicket: e.target.value })}
+                  placeholder={ticketBasePrice ? String(ticketBasePrice) : 'Auto'}
+                />
               </FormField>
             </div>
 
@@ -163,10 +184,8 @@ export function GenerateTicketsPage() {
                 <Row label="First Ticket #" value={<span className="font-mono text-amber-300">{preview.firstTicketNumber}</span>} />
                 <Row label="Last Ticket #" value={<span className="font-mono text-amber-300">{preview.lastTicketNumber}</span>} />
                 <Row label="Total Tickets" value={preview.totalTickets} />
-                <Row label="SEM Value / Ticket" value={formatCurrency(preview.semValuePerTicket)} />
                 <Row label="Price / Ticket" value={formatCurrency(preview.pricePerTicket)} />
                 <div className="border-t border-white/8 pt-3">
-                  <Row label="Total SEM Value" value={<span className="font-semibold text-amber-300">{formatCurrency(preview.totalSemValue)}</span>} />
                   <Row label="Total Amount" value={<span className="font-semibold text-emerald-300">{formatCurrency(preview.totalAmount)}</span>} />
                 </div>
               </div>

@@ -172,14 +172,9 @@ export interface DrawResultInput {
   drawSlotId: number;
   drawDate: string;
   firstPrizeTicketNumber: string;
-  firstPrizeAmount: number;
-  secondPrizeAmount: number;
   secondPrizeNumbers: string[];
-  thirdPrizeAmount: number;
   thirdPrizeNumbers: string[];
-  fourthPrizeAmount: number;
   fourthPrizeNumbers: string[];
-  fifthPrizeAmount: number;
   fifthPrizePercentage: number;
   fifthPrizeNumbers: string[];
 }
@@ -203,7 +198,8 @@ export interface WinnerTicket extends Ticket {
 export interface DrawResultWinnerEntry {
   id: number;
   prizeTier: PrizeTier;
-  prizeAmount: string;
+  grossPrizeAmount: string; // full prize won (tier base × series multiplier)
+  prizeAmount: string; // net paid to the selling agent = gross − MLM win-commission cut
   ticket: WinnerTicket;
   drawResult?: { id: number; drawName: string; drawNumber: string; declaredAt: string; drawSlot: DrawSlot };
 }
@@ -239,7 +235,8 @@ export interface DrawResultListItem extends Omit<DrawResult, 'winners'> {
 export interface MlmLevelPercentage {
   id: number;
   levelNumber: number;
-  percentage: string;
+  percentage: string; // sale commission %
+  winPercentage: string; // prize-win commission %
 }
 
 export interface MlmSettings {
@@ -273,6 +270,7 @@ export interface TreeNode {
 
 export interface CommissionLedgerEntry {
   id: number;
+  kind: 'SALE' | 'WIN';
   levelNumber: number;
   semValue: string;
   percentageApplied: string;
