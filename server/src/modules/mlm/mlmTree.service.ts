@@ -21,23 +21,46 @@ interface TreeNode extends FlatNode {
   children: TreeNode[];
 }
 
+const treeNodeSelect = {
+  id: true,
+  name: true,
+  referralCode: true,
+  role: true,
+  status: true,
+  sponsorId: true,
+} satisfies Prisma.UserSelect;
+
+/**
+ * Breadth-first walk of the sponsor tree, one query per depth level. Deliberately NOT a recursive
+ * CTE — those need MySQL 8 / MariaDB 10.2+ (Amazon Linux's bundled MariaDB can be older) and Prisma
+ * returns the CTE's computed depth as a BigInt on some engines, which broke the `depth === 0` root
+ * check. Realistic MLM downlines are small, so ≤15 indexed lookups on `sponsor_id` is cheap.
+ */
 async function fetchSubtree(rootUserId: number, maxDepth = 15): Promise<FlatNode[]> {
-  const root = await prisma.user.findUnique({ where: { id: rootUserId } });
+  const root = await prisma.user.findUnique({ where: { id: rootUserId }, select: treeNodeSelect });
   if (!root) throw ApiError.notFound('User not found');
 
-  const rows = await prisma.$queryRaw<FlatNode[]>`
-    WITH RECURSIVE downline AS (
-      SELECT id, name, referral_code AS referralCode, role, status, sponsor_id AS sponsorId, 0 AS depth
-      FROM users WHERE id = ${rootUserId}
-      UNION ALL
-      SELECT u.id, u.name, u.referral_code, u.role, u.status, u.sponsor_id, d.depth + 1
-      FROM users u
-      INNER JOIN downline d ON u.sponsor_id = d.id
-      WHERE d.depth < ${maxDepth}
-    )
-    SELECT * FROM downline ORDER BY depth ASC, id ASC
-  `;
-  return rows;
+  const out: FlatNode[] = [{ ...root, depth: 0 }];
+  const seen = new Set<number>([rootUserId]);
+  let frontier = [rootUserId];
+
+  for (let depth = 1; depth <= maxDepth && frontier.length > 0; depth++) {
+    const children = await prisma.user.findMany({
+      where: { sponsorId: { in: frontier } },
+      select: treeNodeSelect,
+      orderBy: { id: 'asc' },
+    });
+    const next: number[] = [];
+    for (const c of children) {
+      if (seen.has(c.id)) continue; // guard against a sponsor cycle
+      seen.add(c.id);
+      out.push({ ...c, depth });
+      next.push(c.id);
+    }
+    frontier = next;
+  }
+
+  return out;
 }
 
 function startOfToday(): Date {

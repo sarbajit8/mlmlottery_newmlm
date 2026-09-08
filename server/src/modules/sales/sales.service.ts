@@ -18,8 +18,6 @@ export async function createSale(input: CreateSaleInput, agentId: number) {
   const waLink = result.customer.whatsapp
     ? buildReceiptWaLink({
         whatsapp: result.customer.whatsapp,
-        customerName: result.customer.name,
-        receiptCode: result.receipt.receiptCode,
         drawSlotName: result.drawSlotName,
         drawDate: result.receipt.drawDate.toISOString().slice(0, 10),
         ticketNumbers: result.ticketNumbers,
