@@ -355,8 +355,12 @@ model DrawResult {
   drawSlot   DrawSlot @relation(fields: [drawSlotId], references: [id])
   drawDate   DateTime @map("draw_date") @db.Date
 
-  firstPrizeTicketId Int     @unique @map("first_prize_ticket_id")
-  firstPrizeTicket   Ticket  @relation("FirstPrizeTicket", fields: [firstPrizeTicketId], references: [id])
+  // The 1st-prize number exactly as the admin entered it. Links to a real sold Ticket when the
+  // number matches one for this slot/date (that agent wins and is paid); when it doesn't, the
+  // number is still recorded here with no linked ticket and no payout.
+  firstPrizeNumber   String  @map("first_prize_number")
+  firstPrizeTicketId Int?    @unique @map("first_prize_ticket_id")
+  firstPrizeTicket   Ticket? @relation("FirstPrizeTicket", fields: [firstPrizeTicketId], references: [id])
   firstPrizeAmount   Decimal @map("first_prize_amount") @db.Decimal(12, 2)
 
   secondPrizeAmount  Decimal @map("second_prize_amount") @db.Decimal(12, 2)

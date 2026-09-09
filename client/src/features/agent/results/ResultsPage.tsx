@@ -25,7 +25,7 @@ export function ResultsPage() {
     { key: 'number', header: 'Draw No.', render: (r) => r.drawNumber },
     { key: 'date', header: 'Draw Date', render: (r) => formatDate(r.drawDate) },
     { key: 'slot', header: 'Slot', render: (r) => r.drawSlot.name },
-    { key: '1st', header: '1st Prize', render: (r) => <span className="font-mono text-emerald-300">{r.firstPrizeTicket.ticketNumber}</span> },
+    { key: '1st', header: '1st Prize', render: (r) => <span className="font-mono text-emerald-300">{r.firstPrizeNumber}</span> },
     { key: 'amount', header: '1st Prize Amount', render: (r) => formatCurrency(r.firstPrizeAmount) },
     { key: 'winners', header: 'Total Winners', render: (r) => <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-300">{r.totalWinners}</span> },
   ];

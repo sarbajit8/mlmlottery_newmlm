@@ -55,18 +55,16 @@ const resultDetailInclude = {
   },
 } satisfies Prisma.DrawResultInclude;
 
-async function resolveFirstPrizeTicket(tx: Prisma.TransactionClient, ticketNumber: string, drawSlotId: number, drawDate: Date) {
+/** The 1st-prize number can be anything the admin types. It only pays out if it matches a
+ *  currently-SOLD ticket for this slot/date; otherwise the number is recorded with no linked
+ *  ticket (like a real lottery where the winning number simply went unsold). */
+async function resolveFirstPrize(tx: Prisma.TransactionClient, rawNumber: string, drawSlotId: number, drawDate: Date) {
+  const number = rawNumber.trim().toUpperCase();
   // Ticket numbers are unique per draw date, not globally (the same prefix/number can recur on a
   // different day) — so the lookup itself must include drawDate, via the compound unique index.
-  const ticket = await tx.ticket.findUnique({ where: { ticketNumber_drawDate: { ticketNumber, drawDate } } });
-  if (!ticket) throw ApiError.badRequest('First prize ticket number does not exist for the selected draw date');
-  if (ticket.drawSlotId !== drawSlotId) {
-    throw ApiError.badRequest('First prize ticket does not belong to the selected draw slot');
-  }
-  if (ticket.status !== 'SOLD') {
-    throw ApiError.badRequest('First prize ticket must be a currently sold ticket');
-  }
-  return ticket;
+  const ticket = await tx.ticket.findUnique({ where: { ticketNumber_drawDate: { ticketNumber: number, drawDate } } });
+  const payable = ticket && ticket.drawSlotId === drawSlotId && ticket.status === 'SOLD' ? ticket : null;
+  return { number, ticket: payable };
 }
 
 /** Prize amounts on a DrawResult are stored as the 1-SEM base. Each winning ticket is actually
@@ -95,7 +93,7 @@ async function computeWinners(
   params: {
     drawSlotId: number;
     drawDate: Date;
-    firstPrizeTicketId: number;
+    firstPrizeTicketId: number | null;
     firstPrizeTicketAgentId: number | null;
     firstPrizeTicketReceiptId: number | null;
     prizeBase: PrizeBaseAmounts;
@@ -116,20 +114,21 @@ async function computeWinners(
   const fourthSet = new Set(params.fourthPrizeNumbers);
   const fifthSet = new Set(params.fifthPrizeNumbers);
 
-  // The first prize ticket is always SOLD (resolveFirstPrizeTicket enforces it), so it's in this
-  // list — pull its series multiplier from there, defaulting to 1× if it somehow isn't.
-  const firstPrizeSem = soldTickets.find((t) => t.id === params.firstPrizeTicketId)?.series.multiplier ?? new Prisma.Decimal(1);
+  const winners: WinnerRow[] = [];
+  const assigned = new Set<number>();
 
-  const winners: WinnerRow[] = [
-    {
+  // 1st prize only produces a winner (and a payout) when the entered number matched a sold ticket.
+  if (params.firstPrizeTicketId !== null) {
+    const firstPrizeSem = soldTickets.find((t) => t.id === params.firstPrizeTicketId)?.series.multiplier ?? new Prisma.Decimal(1);
+    winners.push({
       ticketId: params.firstPrizeTicketId,
       tier: 'FIRST',
       grossAmount: scalePrize(prizeBase.firstPrizeAmount, firstPrizeSem),
       agentId: params.firstPrizeTicketAgentId,
       receiptId: params.firstPrizeTicketReceiptId,
-    },
-  ];
-  const assigned = new Set<number>([params.firstPrizeTicketId]);
+    });
+    assigned.add(params.firstPrizeTicketId);
+  }
 
   for (const ticket of soldTickets) {
     if (assigned.has(ticket.id)) continue;
@@ -282,11 +281,10 @@ async function reversePrizeWinCommissions(tx: Prisma.TransactionClient, drawResu
 export async function declareResult(input: DeclareResultInput, actorId: number) {
   const resultId = await prisma.$transaction(
     async (tx) => {
-      // resolveFirstPrizeTicket already requires status SOLD, and a ticket flips to WINNER the
-      // moment it's used as a first prize — so reuse is already impossible in the normal sequential
-      // case. The `firstPrizeTicketId` unique index (+ the global P2002 handler) covers the narrow
-      // concurrent-race case where two declares pick the same ticket before either commits.
-      const firstTicket = await resolveFirstPrizeTicket(tx, input.firstPrizeTicketNumber, input.drawSlotId, input.drawDate);
+      // Any number is accepted for 1st prize; it only links to a ticket (and pays out) when it
+      // matches a sold one. The `firstPrizeTicketId` unique index (+ the global P2002 handler)
+      // still stops the same real ticket being used as 1st prize in two results.
+      const first = await resolveFirstPrize(tx, input.firstPrizeTicketNumber, input.drawSlotId, input.drawDate);
       const prizeBase = await resolvePrizeBase();
 
       const drawResult = await tx.drawResult.create({
@@ -295,7 +293,8 @@ export async function declareResult(input: DeclareResultInput, actorId: number) 
           drawNumber: input.drawNumber,
           drawSlotId: input.drawSlotId,
           drawDate: input.drawDate,
-          firstPrizeTicketId: firstTicket.id,
+          firstPrizeNumber: first.number,
+          firstPrizeTicketId: first.ticket?.id ?? null,
           firstPrizeAmount: round2(prizeBase.firstPrizeAmount),
           secondPrizeAmount: round2(prizeBase.secondPrizeAmount),
           secondPrizeNumbers: input.secondPrizeNumbers,
@@ -313,9 +312,9 @@ export async function declareResult(input: DeclareResultInput, actorId: number) 
       const winners = await computeWinners(tx, {
         drawSlotId: input.drawSlotId,
         drawDate: input.drawDate,
-        firstPrizeTicketId: firstTicket.id,
-        firstPrizeTicketAgentId: firstTicket.soldByAgentId,
-        firstPrizeTicketReceiptId: firstTicket.receiptId,
+        firstPrizeTicketId: first.ticket?.id ?? null,
+        firstPrizeTicketAgentId: first.ticket?.soldByAgentId ?? null,
+        firstPrizeTicketReceiptId: first.ticket?.receiptId ?? null,
         prizeBase,
         secondPrizeNumbers: input.secondPrizeNumbers,
         thirdPrizeNumbers: input.thirdPrizeNumbers,
@@ -356,9 +355,7 @@ export async function updateResult(id: number, input: DeclareResultInput, actorI
       await reversePrizeWinCommissions(tx, id);
       await tx.drawResultWinner.deleteMany({ where: { drawResultId: id } });
 
-      // Same reasoning as declareResult: any ticket currently in use as another result's first
-      // prize is already WINNER status, so resolveFirstPrizeTicket's SOLD requirement rejects it.
-      const firstTicket = await resolveFirstPrizeTicket(tx, input.firstPrizeTicketNumber, input.drawSlotId, input.drawDate);
+      const first = await resolveFirstPrize(tx, input.firstPrizeTicketNumber, input.drawSlotId, input.drawDate);
       const prizeBase = await resolvePrizeBase();
 
       const updated = await tx.drawResult.update({
@@ -368,7 +365,8 @@ export async function updateResult(id: number, input: DeclareResultInput, actorI
           drawNumber: input.drawNumber,
           drawSlotId: input.drawSlotId,
           drawDate: input.drawDate,
-          firstPrizeTicketId: firstTicket.id,
+          firstPrizeNumber: first.number,
+          firstPrizeTicketId: first.ticket?.id ?? null,
           firstPrizeAmount: round2(prizeBase.firstPrizeAmount),
           secondPrizeAmount: round2(prizeBase.secondPrizeAmount),
           secondPrizeNumbers: input.secondPrizeNumbers,
@@ -385,9 +383,9 @@ export async function updateResult(id: number, input: DeclareResultInput, actorI
       const winners = await computeWinners(tx, {
         drawSlotId: input.drawSlotId,
         drawDate: input.drawDate,
-        firstPrizeTicketId: firstTicket.id,
-        firstPrizeTicketAgentId: firstTicket.soldByAgentId,
-        firstPrizeTicketReceiptId: firstTicket.receiptId,
+        firstPrizeTicketId: first.ticket?.id ?? null,
+        firstPrizeTicketAgentId: first.ticket?.soldByAgentId ?? null,
+        firstPrizeTicketReceiptId: first.ticket?.receiptId ?? null,
         prizeBase,
         secondPrizeNumbers: input.secondPrizeNumbers,
         thirdPrizeNumbers: input.thirdPrizeNumbers,
@@ -473,7 +471,7 @@ export async function listResults(query: ListResultsQuery) {
 
 export async function getRandomTicket(drawSlotId: number, drawDate: Date) {
   const used = await prisma.drawResult.findMany({ where: { drawSlotId, drawDate }, select: { firstPrizeTicketId: true } });
-  const excludeIds = used.map((r) => r.firstPrizeTicketId);
+  const excludeIds = used.map((r) => r.firstPrizeTicketId).filter((x): x is number => x !== null);
 
   const candidates = await prisma.ticket.findMany({
     where: { drawSlotId, drawDate, status: 'SOLD', id: excludeIds.length ? { notIn: excludeIds } : undefined },

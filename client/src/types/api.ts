@@ -215,7 +215,8 @@ export interface DrawResult {
   drawNumber: string;
   drawSlotId: number;
   drawDate: string;
-  firstPrizeTicket: WinnerTicket;
+  firstPrizeNumber: string; // exactly as the admin entered it — not necessarily a real ticket
+  firstPrizeTicket?: WinnerTicket | null; // set only when the number matched a sold ticket
   firstPrizeAmount: string;
   secondPrizeAmount: string;
   secondPrizeNumbers: string[];

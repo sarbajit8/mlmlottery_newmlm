@@ -91,7 +91,7 @@ export function DeclareResultsPage() {
       drawNumber: r.drawNumber,
       drawSlotId: String(r.drawSlotId),
       drawDate: r.drawDate.slice(0, 10),
-      firstPrizeTicketNumber: r.firstPrizeTicket.ticketNumber,
+      firstPrizeTicketNumber: r.firstPrizeNumber,
       secondPrizeNumbersText: r.secondPrizeNumbers.join(', '),
       thirdPrizeNumbersText: r.thirdPrizeNumbers.join(', '),
       fourthPrizeNumbersText: r.fourthPrizeNumbers.join(', '),
@@ -172,7 +172,7 @@ export function DeclareResultsPage() {
       { key: 'number', header: 'Draw No.', render: (r) => <span className="rounded bg-white/8 px-1.5 py-0.5 text-xs">{r.drawNumber}</span> },
       { key: 'date', header: 'Date', render: (r) => formatDate(r.drawDate) },
       { key: 'slot', header: 'Slot', render: (r) => r.drawSlot.name },
-      { key: '1st', header: '1st Prize', render: (r) => <span className="font-mono text-amber-300">{r.firstPrizeTicket.ticketNumber}</span> },
+      { key: '1st', header: '1st Prize', render: (r) => <span className="font-mono text-amber-300">{r.firstPrizeNumber}</span> },
       { key: '2nd', header: '2nd Prize', render: (r) => <span className="font-mono text-xs text-slate-400">{formatNumberList(r.secondPrizeNumbers)}</span> },
       { key: '3rd', header: '3rd Prize', render: (r) => <span className="font-mono text-xs text-slate-400">{formatNumberList(r.thirdPrizeNumbers)}</span> },
       { key: '4th', header: '4th Prize', render: (r) => <span className="font-mono text-xs text-slate-400">{formatNumberList(r.fourthPrizeNumbers)}</span> },
@@ -280,9 +280,9 @@ export function DeclareResultsPage() {
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <FormField label="First Prize" required hint="Format: PREFIX-00000 (Auto picks from sold tickets)">
+            <FormField label="First Prize Number" required hint="Any number — it need not be a sold ticket. If it matches one, that agent is paid; otherwise it's recorded with no payout. 'Auto' picks a random sold ticket.">
               <div className="flex gap-2">
-                <Input required value={form.firstPrizeTicketNumber} onChange={(e) => setForm({ ...form, firstPrizeTicketNumber: e.target.value.toUpperCase() })} placeholder="AAA-00000" className="font-mono" />
+                <Input required value={form.firstPrizeTicketNumber} onChange={(e) => setForm({ ...form, firstPrizeTicketNumber: e.target.value.toUpperCase() })} placeholder="e.g. AAA-00000" className="font-mono" />
                 <Button type="button" variant="secondary" disabled={!form.drawSlotId || !form.drawDate} loading={randomTicketMut.isPending} onClick={() => randomTicketMut.mutate()}>
                   Auto
                 </Button>

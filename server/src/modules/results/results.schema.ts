@@ -21,7 +21,9 @@ export const declareResultSchema = z
 
     // Prize amounts are NOT entered here — they always come from the admin's Prize Settings page
     // (AppSetting "defaultPrizeAmounts"), scaled per winning ticket by its series multiplier.
-    firstPrizeTicketNumber: z.string().min(1),
+    // Any number is accepted — it need not be a generated/sold ticket. If it happens to match a
+    // sold ticket for this slot/date, that agent wins & is paid; otherwise it's just recorded.
+    firstPrizeTicketNumber: z.string().trim().min(1).max(50),
 
     secondPrizeNumbers: z.array(z.string().regex(fiveDigit, 'Must be a 5-digit number')).min(1).max(1000),
     thirdPrizeNumbers: z.array(z.string().regex(fourDigit, 'Must be a 4-digit number')).min(1).max(10000),
