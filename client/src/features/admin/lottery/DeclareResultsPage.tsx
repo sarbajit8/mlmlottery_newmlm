@@ -300,21 +300,21 @@ export function DeclareResultsPage() {
             <p className="mt-2 text-xs text-slate-500">1st prize picked from sold tickets. 2nd from 5-digit range. 3rd, 4th &amp; 5th from 4-digit range. All numbers will be unique across prizes.</p>
           </div>
 
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <FormField label={`Second Prize (${secondCount} Numbers – 5 digits)`} hint="Exactly 10 unique 5-digit numbers">
-              <Textarea rows={4} value={form.secondPrizeNumbersText} onChange={(e) => setForm({ ...form, secondPrizeNumbersText: e.target.value })} placeholder="Enter 10 unique 5-digit numbers separated by commas" />
+          <div className="space-y-4">
+            <FormField label={`2nd Prize (${secondCount} Numbers – 5 digits)`} hint="Exactly 10 unique 5-digit numbers">
+              <Textarea rows={3} value={form.secondPrizeNumbersText} onChange={(e) => setForm({ ...form, secondPrizeNumbersText: e.target.value })} placeholder="Enter 10 unique 5-digit numbers separated by commas" />
             </FormField>
 
-            <FormField label={`Fifth Prize (${fifthCount} Numbers – 4 digits)`} hint={`Suggested: ~${suggestedFifthCount} unique 4-digit numbers (different from 3rd and 4th prizes)`}>
-              <Textarea rows={4} value={form.fifthPrizeNumbersText} onChange={(e) => setForm({ ...form, fifthPrizeNumbersText: e.target.value })} placeholder="Enter numbers separated by commas" />
+            <FormField label={`3rd Prize (${thirdCount} Numbers – 4 digits)`} hint="Exactly 10 unique 4-digit numbers">
+              <Textarea rows={3} value={form.thirdPrizeNumbersText} onChange={(e) => setForm({ ...form, thirdPrizeNumbersText: e.target.value })} placeholder="Enter 10 unique 4-digit numbers separated by commas" />
             </FormField>
 
-            <FormField label={`Third Prize (${thirdCount} Numbers – 4 digits)`} hint="Exactly 10 unique 4-digit numbers">
-              <Textarea rows={4} value={form.thirdPrizeNumbersText} onChange={(e) => setForm({ ...form, thirdPrizeNumbersText: e.target.value })} placeholder="Enter 10 unique 4-digit numbers separated by commas" />
+            <FormField label={`4th Prize (${fourthCount} Numbers – 4 digits)`} hint="Exactly 10 unique 4-digit numbers (different from 3rd prize)">
+              <Textarea rows={3} value={form.fourthPrizeNumbersText} onChange={(e) => setForm({ ...form, fourthPrizeNumbersText: e.target.value })} placeholder="Enter 10 unique 4-digit numbers separated by commas" />
             </FormField>
 
-            <FormField label={`Fourth Prize (${fourthCount} Numbers – 4 digits)`} hint="Exactly 10 unique 4-digit numbers (different from 3rd prize)">
-              <Textarea rows={4} value={form.fourthPrizeNumbersText} onChange={(e) => setForm({ ...form, fourthPrizeNumbersText: e.target.value })} placeholder="Enter 10 unique 4-digit numbers separated by commas" />
+            <FormField label={`5th Prize (${fifthCount} Numbers – 4 digits)`} hint={`Suggested: ~${suggestedFifthCount} unique 4-digit numbers (different from 3rd and 4th prizes)`}>
+              <Textarea rows={3} value={form.fifthPrizeNumbersText} onChange={(e) => setForm({ ...form, fifthPrizeNumbersText: e.target.value })} placeholder="Enter numbers separated by commas" />
             </FormField>
           </div>
 

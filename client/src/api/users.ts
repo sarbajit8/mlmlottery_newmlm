@@ -23,4 +23,5 @@ export const usersApi = {
   }) => axiosClient.post<User>('/users', input).then((r) => r.data),
   setStatus: (id: number, status: UserStatus) => axiosClient.put<User>(`/users/${id}/status`, { status }).then((r) => r.data),
   setPassword: (id: number, password: string) => axiosClient.put(`/users/${id}/password`, { password }),
+  remove: (id: number) => axiosClient.delete(`/users/${id}`).then((r) => r.data),
 };

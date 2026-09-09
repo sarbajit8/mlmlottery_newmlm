@@ -1,4 +1,4 @@
-import type { Role, UserStatus } from '@prisma/client';
+import { Prisma, type Role, type UserStatus } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { hashPassword } from '../../lib/password.js';
 import { generateReferralCode } from '../../lib/codes.js';
@@ -180,6 +180,63 @@ export async function setStatus(id: number, status: UserStatus, actorId: number)
 
   await logActivity(prisma, { actorId, action: 'USER_STATUS_CHANGE', entityType: 'User', entityId: id, metadata: { status } });
   return sanitize(updated);
+}
+
+/** Permanently deletes an agent. Only allowed for a "clean" account — no downline and no
+ *  financial / sales footprint — because those records reference the user and must not be
+ *  silently dropped. Anyone with history should be Deactivated instead. */
+export async function deleteUser(id: number, actorId: number) {
+  const user = await prisma.user.findUnique({
+    where: { id },
+    include: {
+      _count: {
+        select: {
+          downline: true,
+          ticketsSold: true,
+          receipts: true,
+          customersCreated: true,
+          commissionsEarned: true,
+          commissionsSourced: true,
+          walletTransactions: true,
+          withdrawalRequests: true,
+          depositRequests: true,
+          transfersSent: true,
+          transfersReceived: true,
+          createdBatches: true,
+          drawResultsDeclared: true,
+        },
+      },
+    },
+  });
+  if (!user) throw ApiError.notFound('User not found');
+  if (user.role === 'SUPER_ADMIN' || user.isCompanyWallet) throw ApiError.forbidden('An admin / company wallet account cannot be deleted');
+  if (user.id === actorId) throw ApiError.badRequest('You cannot delete your own account');
+
+  const c = user._count;
+  const blockers: string[] = [];
+  if (c.downline > 0) blockers.push(`${c.downline} downline agent(s)`);
+  if (c.ticketsSold > 0) blockers.push(`${c.ticketsSold} sold ticket(s)`);
+  if (c.receipts > 0) blockers.push(`${c.receipts} sale(s)`);
+  if (c.customersCreated > 0) blockers.push(`${c.customersCreated} customer(s)`);
+  if (c.commissionsEarned + c.commissionsSourced > 0) blockers.push('commission history');
+  if (c.walletTransactions > 0) blockers.push('wallet history');
+  if (c.withdrawalRequests + c.depositRequests + c.transfersSent + c.transfersReceived > 0) blockers.push('wallet requests / transfers');
+  if (c.createdBatches > 0) blockers.push('generated ticket batches');
+  if (c.drawResultsDeclared > 0) blockers.push('declared results');
+  if (!new Prisma.Decimal(user.walletBalance).equals(0)) blockers.push('a non-zero wallet balance');
+
+  if (blockers.length > 0) {
+    throw ApiError.conflict(`Cannot delete "${user.name}" — they still have ${blockers.join(', ')}. Deactivate the account instead.`);
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.bankDetailsRequest.deleteMany({ where: { userId: id } });
+    await tx.supportMessage.deleteMany({ where: { OR: [{ agentId: id }, { senderId: id }] } });
+    await tx.auditLog.updateMany({ where: { actorId: id }, data: { actorId: null } });
+    await tx.user.updateMany({ where: { approvedById: id }, data: { approvedById: null } });
+    await tx.user.delete({ where: { id } });
+    await logActivity(tx, { actorId, action: 'USER_DELETE', entityType: 'User', entityId: id, metadata: { name: user.name, email: user.email } });
+  });
 }
 
 /** Admin sets a new password for an agent (e.g. they forgot it). The old password can never be

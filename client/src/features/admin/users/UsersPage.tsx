@@ -13,7 +13,7 @@ import { FormField } from '@/components/ui/FormField';
 import { StatusBadge } from '@/components/ui/Badge';
 import { toast } from '@/store/toastStore';
 import { formatDate } from '@/utils/format';
-import { IconPlus, IconNetwork, IconKey } from '@/components/ui/icons';
+import { IconPlus, IconNetwork, IconKey, IconTrash } from '@/components/ui/icons';
 import type { User, UserStatus } from '@/types/api';
 
 const emptyForm = { name: '', email: '', mobile: '', whatsapp: '', password: '', sponsorId: '', autoApprove: true };
@@ -66,8 +66,18 @@ export function UsersPage() {
     onError: (err) => setPasswordError(apiErrorMessage(err)),
   });
 
+  const deleteMut = useMutation({
+    mutationFn: usersApi.remove,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['users'] });
+      toast.success('User deleted');
+    },
+    onError: (err) => toast.error(apiErrorMessage(err)),
+  });
+
   const columns: Column<User>[] = [
     { key: 'name', header: 'Name', render: (r) => <span className="font-medium text-slate-100">{r.name}</span> },
+    { key: 'email', header: 'Email', render: (r) => <span className="text-xs text-slate-400">{r.email}</span> },
     { key: 'code', header: 'Referral Code', render: (r) => <span className="font-mono text-xs">{r.referralCode}</span> },
     { key: 'sponsor', header: 'Sponsor', render: (r) => r.sponsor?.name ?? '—' },
     { key: 'downline', header: 'Downline', render: (r) => r._count?.downline ?? 0 },
@@ -99,6 +109,18 @@ export function UsersPage() {
             <Button size="sm" onClick={() => statusMut.mutate({ id: r.id, status: 'ACTIVE' })}>
               Activate
             </Button>
+          )}
+          {r.role !== 'SUPER_ADMIN' && !r.isCompanyWallet && (
+            <Button
+              size="sm"
+              variant="danger"
+              icon={<IconTrash className="h-3.5 w-3.5" />}
+              loading={deleteMut.isPending && deleteMut.variables === r.id}
+              onClick={() =>
+                confirm(`Permanently delete "${r.name}" (${r.email})? Only works if they have no downline or sales history.`) &&
+                deleteMut.mutate(r.id)
+              }
+            />
           )}
         </div>
       ),

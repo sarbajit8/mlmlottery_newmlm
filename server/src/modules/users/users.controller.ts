@@ -32,3 +32,10 @@ export async function setPasswordHandler(req: Request, res: Response) {
   await usersService.setPassword(id, req.body.password, req.user.id);
   res.status(204).send();
 }
+
+export async function deleteUserHandler(req: Request, res: Response) {
+  if (!req.user) throw ApiError.unauthorized();
+  const { id } = req.params as unknown as { id: number };
+  await usersService.deleteUser(id, req.user.id);
+  res.status(204).send();
+}
