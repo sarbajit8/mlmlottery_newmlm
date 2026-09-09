@@ -204,17 +204,18 @@ async function reverseWinnerWallets(
 
 /**
  * Records the winners of a declared result and distributes the prize pool for each winning ticket:
- *  - MLM "win" commission up the seller's sponsor chain (winPercentage per level × the gross prize),
- *    exactly like sale commission but on the prize amount;
- *  - the remainder (gross − that commission cut) to the selling agent as their prize.
- * The DrawResultWinner row keeps both the gross and the net so the deduction is always visible.
+ *  - MLM "win" commission down the chain, level 1 = the selling agent, each level earning its
+ *    tier-specific percentage of the gross prize (Prize Settings has a per-tier, per-level matrix);
+ *  - the remainder (gross − the total of every level's cut) to the selling agent as their prize.
+ * So the seller gets: the net prize PLUS their own level-1 win commission. The DrawResultWinner
+ * row keeps both the gross and the net so the deduction is always visible.
  */
 async function saveWinnersAndDistributePrizePool(tx: Prisma.TransactionClient, drawResultId: number, winners: WinnerRow[]) {
   const commissions = await computePrizeWinCommissions(tx, {
     drawResultId,
     winners: winners
       .filter((w) => w.receiptId !== null)
-      .map((w) => ({ ticketId: w.ticketId, receiptId: w.receiptId as number, sellerAgentId: w.agentId, prizeAmount: w.grossAmount })),
+      .map((w) => ({ ticketId: w.ticketId, receiptId: w.receiptId as number, sellerAgentId: w.agentId, prizeAmount: w.grossAmount, tier: w.tier })),
   });
 
   // How much of each ticket's prize was allocated to its seller's upline as win commission.

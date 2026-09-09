@@ -33,13 +33,13 @@ export function PrizeWinnersPage() {
     { key: 'gross', header: 'Prize Won', render: (r) => <span className="text-slate-300">{formatCurrency(r.grossPrizeAmount)}</span> },
     {
       key: 'cut',
-      header: 'Win Comm.',
+      header: 'Commission',
       render: (r) => {
         const cut = Number(r.grossPrizeAmount) - Number(r.prizeAmount);
         return cut > 0 ? <span className="text-rose-300">− {formatCurrency(cut)}</span> : <span className="text-slate-500">—</span>;
       },
     },
-    { key: 'prize', header: 'Net to Agent', render: (r) => <span className="font-semibold text-emerald-300">{formatCurrency(r.prizeAmount)}</span> },
+    { key: 'prize', header: 'Net Prize', render: (r) => <span className="font-semibold text-emerald-300">{formatCurrency(r.prizeAmount)}</span> },
     { key: 'agent', header: 'Sold By', render: (r) => r.ticket.soldByAgent?.name ?? '—' },
     { key: 'customer', header: 'Customer', render: (r) => r.ticket.soldToCustomer?.name ?? '—' },
     { key: 'declared', header: 'Declared At', render: (r) => (r.drawResult ? formatDateTime(r.drawResult.declaredAt) : '—') },
@@ -47,7 +47,7 @@ export function PrizeWinnersPage() {
 
   return (
     <div>
-      <PageHeader title="Prize Winners" description="Every winning ticket across every declared result. Prize Won = 1-SEM base × series multiplier; the MLM win commission is cut from it and the Net reaches the selling agent." />
+      <PageHeader title="Prize Winners" description="Every winning ticket across every declared result. Prize Won = 1-SEM base × series multiplier. Commission is the total taken down the chain (level 1 = the seller, who also earns that level-1 slice); Net Prize is the prize money left for the selling agent." />
       <Card>
         <div className="flex flex-wrap items-center gap-2 border-b border-white/8 p-4">
           <Input type="date" value={drawDate} onChange={(e) => { setDrawDate(e.target.value); setPage(1); }} className="max-w-44" />

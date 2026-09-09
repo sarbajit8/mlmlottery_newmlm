@@ -21,7 +21,7 @@ export async function createSale(input: CreateSaleInput, agentId: number) {
         drawSlotName: result.drawSlotName,
         drawDate: result.receipt.drawDate.toISOString().slice(0, 10),
         ticketNumbers: result.ticketNumbers,
-        totalSemValue: result.receipt.totalSemValue.toNumber(),
+        seriesSummary: result.seriesSummary,
         totalAmount: result.receipt.totalAmount.toNumber(),
       })
     : null;
@@ -34,7 +34,11 @@ async function runCreateSale(input: CreateSaleInput, agentId: number) {
     async (tx) => {
       const tickets = await tx.ticket.findMany({
         where: { id: { in: input.ticketIds } },
-        include: { batch: { select: { status: true } }, drawSlot: { select: { id: true, name: true } } },
+        include: {
+          batch: { select: { status: true } },
+          drawSlot: { select: { id: true, name: true } },
+          series: { select: { name: true, multiplier: true } },
+        },
       });
 
       if (tickets.length !== input.ticketIds.length) {
@@ -181,11 +185,19 @@ async function runCreateSale(input: CreateSaleInput, agentId: number) {
         metadata: { totalTickets: tickets.length, totalAmount: totalAmount.toString() },
       });
 
+      // "3CM ×2, 5CM ×1" — which SEM series the bought tickets came from, and how many of each.
+      const countBySeries = new Map<string, number>();
+      for (const t of tickets) countBySeries.set(t.series.name, (countBySeries.get(t.series.name) ?? 0) + 1);
+      const seriesSummary = [...countBySeries.entries()]
+        .map(([name, count]) => (tickets.length > 1 ? `${name} ×${count}` : name))
+        .join(', ');
+
       return {
         receipt,
         customer,
         drawSlotName: tickets[0].drawSlot.name,
         ticketNumbers: tickets.map((t) => t.ticketNumber).sort(),
+        seriesSummary,
       };
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, timeout: 20000 },

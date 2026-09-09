@@ -15,7 +15,6 @@ import { cn } from '@/utils/cn';
 interface LevelRow {
   levelNumber: number;
   percentage: string; // paid up the chain when a ticket is sold
-  winPercentage: string; // paid up the chain when that ticket wins a prize
 }
 
 export function MlmSettingsPage() {
@@ -46,7 +45,7 @@ export function MlmSettingsPage() {
     setLevels(
       Array.from({ length: settings.maxLevels }, (_, i) => {
         const existing = settings.levelPercentages.find((l) => l.levelNumber === i + 1);
-        return { levelNumber: i + 1, percentage: existing?.percentage ?? '0', winPercentage: existing?.winPercentage ?? '0' };
+        return { levelNumber: i + 1, percentage: existing?.percentage ?? '0' };
       }),
     );
   }, [settings]);
@@ -91,14 +90,13 @@ export function MlmSettingsPage() {
     setLevels((prev) => {
       const next: LevelRow[] = [];
       for (let i = 1; i <= n; i++) {
-        next.push(prev.find((p) => p.levelNumber === i) ?? { levelNumber: i, percentage: '0', winPercentage: '0' });
+        next.push(prev.find((p) => p.levelNumber === i) ?? { levelNumber: i, percentage: '0' });
       }
       return next;
     });
   }
 
   const totalPercent = levels.reduce((sum, l) => sum + (Number(l.percentage) || 0), 0);
-  const totalWinPercent = levels.reduce((sum, l) => sum + (l.levelNumber === 1 ? 0 : Number(l.winPercentage) || 0), 0);
 
   const saveMut = useMutation({
     mutationFn: () =>
@@ -111,7 +109,7 @@ export function MlmSettingsPage() {
         levelPercentages: levels.map((l) => ({
           levelNumber: l.levelNumber,
           percentage: Number(l.percentage) || 0,
-          winPercentage: l.levelNumber === 1 ? 0 : Number(l.winPercentage) || 0,
+          winPercentage: 0, // prize-win commission moved to the Prize Settings page (per-tier matrix)
         })),
       }),
     onSuccess: (res) => {
@@ -125,7 +123,7 @@ export function MlmSettingsPage() {
 
   return (
     <div>
-      <PageHeader title="MLM Settings" description="Configure how deep and how much commission pays out — on ticket sales (Sale %) and on prize wins (Win %)." />
+      <PageHeader title="MLM Settings" description="How deep the tree pays and the sale-commission % per level. Prize-win commission is set on the Prize Settings page." />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
         <Card className="lg:col-span-2 h-fit">
@@ -161,68 +159,41 @@ export function MlmSettingsPage() {
 
         <Card className="lg:col-span-3 h-fit">
           <CardHeader>
-            <CardTitle>Percentage per Level</CardTitle>
-            <span className="text-xs text-slate-500">
-              Sale total{' '}
-              <span className={cn('font-semibold', totalPercent > 100 ? 'text-red-400' : 'text-emerald-400')}>{totalPercent.toFixed(2)}%</span>
-              {'  ·  '}Win total{' '}
-              <span className={cn('font-semibold', totalWinPercent > 100 ? 'text-red-400' : 'text-emerald-400')}>{totalWinPercent.toFixed(2)}%</span>
+            <CardTitle>Sale Commission % per Level</CardTitle>
+            <span className={cn('text-sm font-semibold', totalPercent > 100 ? 'text-red-400' : 'text-emerald-400')}>
+              Total: {totalPercent.toFixed(2)}%
             </span>
           </CardHeader>
           <CardBody>
             <p className="mb-3 text-xs text-slate-500">
-              Level 1 is the agent who sold the ticket; level 2 is their sponsor, level 3 the sponsor's sponsor, and so on.{' '}
-              <span className="font-medium text-slate-300">Sale %</span> — minted as a bonus on every ticket sold (% of SEM value), level 1 included so
-              the seller earns too.{' '}
-              <span className="font-medium text-slate-300">Win %</span> — taken out of a winning ticket's prize and paid to levels 2+ only; level 1
-              (the seller) keeps whatever is left. The two columns are independent.
+              Paid on every ticket sold, minted as a bonus (% of SEM value). Level 1 is the agent who sold the ticket, level 2
+              their sponsor, level 3 the sponsor's sponsor, and so on. Prize-win commission is a separate matrix on the Prize
+              Settings page.
             </p>
-            {(totalPercent > 100 || totalWinPercent > 100) && (
+            {totalPercent > 100 && (
               <p className="mb-3 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300">
-                A column sums to over 100%. This is allowed but double-check it's intentional.
+                Level percentages sum to over 100%. This is allowed but double-check it's intentional.
               </p>
             )}
-            <div className="max-h-96 overflow-y-auto pr-1">
-              <div className="mb-1 flex items-center gap-3 text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                <span className="w-16 shrink-0" />
-                <span className="flex-1">Sale %</span>
-                <span className="flex-1">Win %</span>
-              </div>
-              <div className="space-y-2">
-                {levels.map((l, i) => (
-                  <div key={l.levelNumber} className="flex items-center gap-3">
-                    <span className="w-16 shrink-0 text-xs text-slate-400">Lvl {l.levelNumber}</span>
-                    <Input
-                      className="flex-1"
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="0.1"
-                      value={l.percentage}
-                      onChange={(e) => {
-                        const next = [...levels];
-                        next[i] = { ...l, percentage: e.target.value };
-                        setLevels(next);
-                      }}
-                    />
-                    <Input
-                      className="flex-1"
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="0.1"
-                      disabled={l.levelNumber === 1}
-                      placeholder={l.levelNumber === 1 ? 'seller keeps prize' : undefined}
-                      value={l.levelNumber === 1 ? '' : l.winPercentage}
-                      onChange={(e) => {
-                        const next = [...levels];
-                        next[i] = { ...l, winPercentage: e.target.value };
-                        setLevels(next);
-                      }}
-                    />
-                  </div>
-                ))}
-              </div>
+            <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
+              {levels.map((l, i) => (
+                <div key={l.levelNumber} className="flex items-center gap-3">
+                  <span className="w-20 shrink-0 text-xs text-slate-400">Level {l.levelNumber}</span>
+                  <Input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    value={l.percentage}
+                    onChange={(e) => {
+                      const next = [...levels];
+                      next[i] = { ...l, percentage: e.target.value };
+                      setLevels(next);
+                    }}
+                  />
+                  <span className="text-xs text-slate-500">%</span>
+                </div>
+              ))}
             </div>
 
             {error && <p className="mt-3 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300">{error}</p>}

@@ -147,6 +147,33 @@ export async function getDefaultPrizeAmounts(): Promise<PrizeAmountDefaults> {
   return merged;
 }
 
+export type PrizeTierKey = 'FIRST' | 'SECOND' | 'THIRD' | 'FOURTH' | 'FIFTH';
+export const PRIZE_TIER_KEYS: PrizeTierKey[] = ['FIRST', 'SECOND', 'THIRD', 'FOURTH', 'FIFTH'];
+
+/** Per-prize-tier, per-level win-commission percentages (AppSetting key "prizeWinCommission", set
+ *  on the Prize Settings page). Each tier has its own array indexed by (level - 1); level 1 is the
+ *  selling agent, who earns a commission on top of receiving the prize. Missing / invalid entries
+ *  read as 0. */
+export type PrizeWinCommission = Record<PrizeTierKey, number[]>;
+
+export async function getPrizeWinCommission(): Promise<PrizeWinCommission> {
+  const out = Object.fromEntries(PRIZE_TIER_KEYS.map((t) => [t, [] as number[]])) as PrizeWinCommission;
+  const setting = await prisma.appSetting.findUnique({ where: { key: 'prizeWinCommission' } });
+  const raw = setting?.value;
+  if (!raw || typeof raw !== 'object') return out;
+  const obj = raw as Record<string, unknown>;
+  for (const tier of PRIZE_TIER_KEYS) {
+    const arr = obj[tier];
+    if (Array.isArray(arr)) {
+      out[tier] = arr.map((n) => {
+        const x = Number(n);
+        return Number.isFinite(x) && x > 0 ? x : 0;
+      });
+    }
+  }
+  return out;
+}
+
 export async function listAppSettings() {
   return prisma.appSetting.findMany();
 }

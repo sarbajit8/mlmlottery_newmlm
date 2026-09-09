@@ -3,7 +3,7 @@ export interface ReceiptWaLinkInput {
   drawSlotName: string;
   drawDate: string;
   ticketNumbers: string[];
-  totalSemValue: number;
+  seriesSummary: string; // which SEM series the tickets are from, e.g. "3CM ×2, 5CM ×1"
   totalAmount: number;
 }
 
@@ -14,7 +14,7 @@ export function buildReceiptWaLink(input: ReceiptWaLinkInput): string {
   const lines = [
     `Draw: ${input.drawSlotName} on ${input.drawDate}`,
     `Tickets (${input.ticketNumbers.length}): ${input.ticketNumbers.join(', ')}`,
-    `Total SEM Value: Rs. ${input.totalSemValue.toFixed(2)}`,
+    ...(input.seriesSummary ? [`SEM: ${input.seriesSummary}`] : []),
     `Total Paid: Rs. ${input.totalAmount.toFixed(2)}`,
   ];
   const text = encodeURIComponent(lines.join('\n'));

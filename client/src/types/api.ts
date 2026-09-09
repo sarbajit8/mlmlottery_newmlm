@@ -190,6 +190,11 @@ export interface PrizeAmountDefaults {
   fifthPrizePercentage: number;
 }
 
+export type PrizeTierKey = 'FIRST' | 'SECOND' | 'THIRD' | 'FOURTH' | 'FIFTH';
+// AppSetting "prizeWinCommission" — per prize tier, an array of per-level win-commission %
+// (index 0 = level 1 = the selling agent). Length tracks MLM Settings' maxLevels.
+export type PrizeWinCommission = Record<PrizeTierKey, number[]>;
+
 export interface WinnerTicket extends Ticket {
   soldByAgent?: { id: number; name: string } | null;
   soldToCustomer?: Customer | null;

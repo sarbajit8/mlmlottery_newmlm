@@ -1,5 +1,6 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, type PrizeTier } from '@prisma/client';
 import { round2 } from '../../lib/money.js';
+import { getPrizeWinCommission } from '../system/system.service.js';
 
 type Tx = Prisma.TransactionClient;
 
@@ -125,15 +126,18 @@ interface PrizeWinner {
   receiptId: number;
   sellerAgentId: number | null;
   prizeAmount: Prisma.Decimal;
+  tier: PrizeTier;
 }
 
 /**
- * Prize-win commission: when a result is declared, the levels ABOVE the selling agent each earn
- * their configured `winPercentage` of that ticket's (already SEM-scaled) prize amount, taken out of
- * the prize. Level 1 in the chain is the selling agent themselves — they aren't paid a win
- * commission, they receive the prize itself (whatever is left after the upline cut), so level 1 is
- * skipped here. Level 2 is the sponsor, level 3 the sponsor's sponsor, and so on; empty upper
- * levels roll up to the company wallet. The chain is resolved once per distinct seller.
+ * Prize-win commission: when a result is declared, every level of the chain earns its configured
+ * percentage of that ticket's (already SEM-scaled) prize amount, and the total is cut from the
+ * prize. Level 1 is the SELLING AGENT — so the seller both receives the prize (net of every level's
+ * cut) AND earns the level-1 commission on top; level 2 is their sponsor, and so on, with empty
+ * levels rolling up to the company wallet.
+ *
+ * Each prize tier (1st..5th) has its OWN per-level percentages — AppSetting "prizeWinCommission",
+ * set on the Prize Settings page.
  */
 export async function computePrizeWinCommissions(
   tx: Tx,
@@ -144,10 +148,9 @@ export async function computePrizeWinCommissions(
     return { ledgerRows: [], walletCredits: new Map(), payoutMode: 'INSTANT' };
   }
 
-  const winPctByLevel = new Map(settings.levelPercentages.map((lp) => [lp.levelNumber, lp.winPercentage]));
-  // Only levels 2+ pay a win commission (level 1 is the seller / prize owner).
-  const hasUplineWinPct = settings.levelPercentages.some((lp) => lp.levelNumber >= 2 && lp.winPercentage.greaterThan(0));
-  if (!hasUplineWinPct) {
+  const ratesByTier = await getPrizeWinCommission();
+  const anyRate = Object.values(ratesByTier).some((arr) => arr.some((p) => p > 0));
+  if (!anyRate) {
     return { ledgerRows: [], walletCredits: new Map(), payoutMode: settings.payoutMode };
   }
 
@@ -159,6 +162,9 @@ export async function computePrizeWinCommissions(
   for (const winner of params.winners) {
     if (!winner.sellerAgentId || winner.prizeAmount.lessThanOrEqualTo(0)) continue;
 
+    const tierRates = ratesByTier[winner.tier] ?? [];
+    if (!tierRates.some((p) => p > 0)) continue;
+
     let chain = chainCache.get(winner.sellerAgentId);
     if (!chain) {
       chain = await resolveUplineChain(tx, winner.sellerAgentId, settings.maxLevels, settings.shortfallPolicy, companyWalletId);
@@ -166,9 +172,9 @@ export async function computePrizeWinCommissions(
     }
 
     for (const { level, agentId } of chain) {
-      if (level === 1) continue; // level 1 is the seller — their reward is the prize, not a commission
-      const pct = winPctByLevel.get(level);
-      if (pct === undefined || pct.lessThanOrEqualTo(0)) continue;
+      const pctNum = tierRates[level - 1] ?? 0;
+      if (pctNum <= 0) continue;
+      const pct = new Prisma.Decimal(pctNum);
       const commissionAmount = round2(winner.prizeAmount.times(pct).dividedBy(100));
       if (commissionAmount.lessThanOrEqualTo(0)) continue;
 
