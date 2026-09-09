@@ -98,7 +98,7 @@ export function MlmSettingsPage() {
   }
 
   const totalPercent = levels.reduce((sum, l) => sum + (Number(l.percentage) || 0), 0);
-  const totalWinPercent = levels.reduce((sum, l) => sum + (Number(l.winPercentage) || 0), 0);
+  const totalWinPercent = levels.reduce((sum, l) => sum + (l.levelNumber === 1 ? 0 : Number(l.winPercentage) || 0), 0);
 
   const saveMut = useMutation({
     mutationFn: () =>
@@ -111,7 +111,7 @@ export function MlmSettingsPage() {
         levelPercentages: levels.map((l) => ({
           levelNumber: l.levelNumber,
           percentage: Number(l.percentage) || 0,
-          winPercentage: Number(l.winPercentage) || 0,
+          winPercentage: l.levelNumber === 1 ? 0 : Number(l.winPercentage) || 0,
         })),
       }),
     onSuccess: (res) => {
@@ -171,10 +171,11 @@ export function MlmSettingsPage() {
           </CardHeader>
           <CardBody>
             <p className="mb-3 text-xs text-slate-500">
-              <span className="font-medium text-slate-300">Sale %</span> — paid up the seller's chain on every ticket sold (% of SEM value), minted
-              like a bonus.{' '}
-              <span className="font-medium text-slate-300">Win %</span> — when that ticket wins, this share of the prize is taken out and paid up the
-              same chain; the selling agent gets the rest. The two columns are independent.
+              Level 1 is the agent who sold the ticket; level 2 is their sponsor, level 3 the sponsor's sponsor, and so on.{' '}
+              <span className="font-medium text-slate-300">Sale %</span> — minted as a bonus on every ticket sold (% of SEM value), level 1 included so
+              the seller earns too.{' '}
+              <span className="font-medium text-slate-300">Win %</span> — taken out of a winning ticket's prize and paid to levels 2+ only; level 1
+              (the seller) keeps whatever is left. The two columns are independent.
             </p>
             {(totalPercent > 100 || totalWinPercent > 100) && (
               <p className="mb-3 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300">
@@ -210,7 +211,9 @@ export function MlmSettingsPage() {
                       min="0"
                       max="100"
                       step="0.1"
-                      value={l.winPercentage}
+                      disabled={l.levelNumber === 1}
+                      placeholder={l.levelNumber === 1 ? 'seller keeps prize' : undefined}
+                      value={l.levelNumber === 1 ? '' : l.winPercentage}
                       onChange={(e) => {
                         const next = [...levels];
                         next[i] = { ...l, winPercentage: e.target.value };

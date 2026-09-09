@@ -41,6 +41,13 @@ export async function lockBatchHandler(req: Request, res: Response) {
   res.json(await service.lockBatch(id, req.user.id));
 }
 
+export async function deleteBatchHandler(req: Request, res: Response) {
+  if (!req.user) throw ApiError.unauthorized();
+  const { id } = req.params as unknown as { id: number };
+  await service.deleteBatch(id, req.user.id);
+  res.status(204).send();
+}
+
 export async function searchHandler(req: Request, res: Response) {
   res.json(await service.searchAvailableTickets(req.query as unknown as service.TicketSearchQuery));
 }

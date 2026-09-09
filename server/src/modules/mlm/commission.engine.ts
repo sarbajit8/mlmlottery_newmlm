@@ -22,9 +22,13 @@ export interface CommissionComputation {
 
 /**
  * Resolves the commission chain for one selling agent: `{ level, agentId }` for every level
- * 1..maxLevels. Real uplines fill the shallow levels; a sponsor cycle / self-sponsor stops the
- * walk (so one user can't collect several levels), and any level with no real upline behind it is
- * a shortfall — sent to the company wallet under ROLLUP_TO_ADMIN, dropped under FORFEIT.
+ * 1..maxLevels.
+ *
+ * Level 1 is the SELLING AGENT themselves (the person who sold the ticket / holds the prize),
+ * level 2 is their sponsor, level 3 the sponsor's sponsor, and so on up the tree. A sponsor cycle
+ * / self-sponsor stops the walk (so one user can't collect several levels), and any level with no
+ * real person behind it is a shortfall — sent to the company wallet under ROLLUP_TO_ADMIN, dropped
+ * under FORFEIT.
  */
 async function resolveUplineChain(
   tx: Tx,
@@ -33,10 +37,10 @@ async function resolveUplineChain(
   shortfallPolicy: 'FORFEIT' | 'ROLLUP_TO_ADMIN',
   companyWalletId: number | null,
 ): Promise<{ level: number; agentId: number }[]> {
-  const chain: { level: number; agentId: number }[] = [];
+  const chain: { level: number; agentId: number }[] = maxLevels >= 1 ? [{ level: 1, agentId: sellingAgentId }] : [];
   const seen = new Set<number>([sellingAgentId]);
   let currentId = sellingAgentId;
-  for (let level = 1; level <= maxLevels; level++) {
+  for (let level = 2; level <= maxLevels; level++) {
     const current = await tx.user.findUnique({ where: { id: currentId }, select: { sponsorId: true } });
     if (!current?.sponsorId || seen.has(current.sponsorId)) break;
     chain.push({ level, agentId: current.sponsorId });
@@ -69,9 +73,10 @@ async function getActiveSettingsAndCompany(tx: Tx) {
 }
 
 /**
- * Sale commission: walks the sponsor chain once for the selling agent (every ticket in one sale
- * shares the seller, so the chain is identical for the whole cart) and builds ledger rows per
- * ticket x level, each level earning its configured `percentage` of the ticket's SEM value.
+ * Sale commission: resolves the chain once for the selling agent (every ticket in one sale shares
+ * the seller) and builds ledger rows per ticket x level, each level earning its configured
+ * `percentage` of the ticket's SEM value. Level 1 is the selling agent themselves, so the person
+ * who made the sale earns the level-1 rate; level 2 is their sponsor, and so on up the tree.
  */
 export async function computeCommissionsForSale(tx: Tx, params: ComputeCommissionsParams): Promise<CommissionComputation> {
   const { settings, companyWalletId } = await getActiveSettingsAndCompany(tx);
@@ -123,10 +128,12 @@ interface PrizeWinner {
 }
 
 /**
- * Prize-win commission: when a result is declared, each winning ticket's selling agent's upline
- * earns its configured `winPercentage` of that ticket's (already SEM-scaled) prize amount. Same
- * chain rules as sale commission (cycle guard + shortfall to the company wallet). The chain is
- * resolved once per distinct seller since a single result can have winning tickets from many.
+ * Prize-win commission: when a result is declared, the levels ABOVE the selling agent each earn
+ * their configured `winPercentage` of that ticket's (already SEM-scaled) prize amount, taken out of
+ * the prize. Level 1 in the chain is the selling agent themselves — they aren't paid a win
+ * commission, they receive the prize itself (whatever is left after the upline cut), so level 1 is
+ * skipped here. Level 2 is the sponsor, level 3 the sponsor's sponsor, and so on; empty upper
+ * levels roll up to the company wallet. The chain is resolved once per distinct seller.
  */
 export async function computePrizeWinCommissions(
   tx: Tx,
@@ -138,8 +145,9 @@ export async function computePrizeWinCommissions(
   }
 
   const winPctByLevel = new Map(settings.levelPercentages.map((lp) => [lp.levelNumber, lp.winPercentage]));
-  const hasAnyWinPct = [...winPctByLevel.values()].some((p) => p.greaterThan(0));
-  if (!hasAnyWinPct) {
+  // Only levels 2+ pay a win commission (level 1 is the seller / prize owner).
+  const hasUplineWinPct = settings.levelPercentages.some((lp) => lp.levelNumber >= 2 && lp.winPercentage.greaterThan(0));
+  if (!hasUplineWinPct) {
     return { ledgerRows: [], walletCredits: new Map(), payoutMode: settings.payoutMode };
   }
 
@@ -158,6 +166,7 @@ export async function computePrizeWinCommissions(
     }
 
     for (const { level, agentId } of chain) {
+      if (level === 1) continue; // level 1 is the seller — their reward is the prize, not a commission
       const pct = winPctByLevel.get(level);
       if (pct === undefined || pct.lessThanOrEqualTo(0)) continue;
       const commissionAmount = round2(winner.prizeAmount.times(pct).dividedBy(100));

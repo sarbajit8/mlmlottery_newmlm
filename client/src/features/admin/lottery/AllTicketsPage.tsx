@@ -10,6 +10,8 @@ import { StatusBadge } from '@/components/ui/Badge';
 import { TicketGridModal } from './TicketGridModal';
 import { formatCurrency, formatDate } from '@/utils/format';
 import { toast } from '@/store/toastStore';
+import { apiErrorMessage } from '@/api/axiosClient';
+import { IconTrash } from '@/components/ui/icons';
 import type { TicketBatch } from '@/types/api';
 
 export function AllTicketsPage() {
@@ -31,6 +33,16 @@ export function AllTicketsPage() {
       qc.invalidateQueries({ queryKey: ['batches'] });
       toast.success('Batch locked');
     },
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: ticketsApi.deleteBatch,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['batches'] });
+      qc.invalidateQueries({ queryKey: ['ticket-summary'] });
+      toast.success('Ticket lot deleted');
+    },
+    onError: (err) => toast.error(apiErrorMessage(err)),
   });
 
   const columns: Column<TicketBatch>[] = [
@@ -71,6 +83,18 @@ export function AllTicketsPage() {
               Lock
             </Button>
           )}
+          {r.counts.sold === 0 && (
+            <Button
+              size="sm"
+              variant="danger"
+              icon={<IconTrash className="h-3.5 w-3.5" />}
+              loading={deleteMut.isPending && deleteMut.variables === r.id}
+              onClick={() =>
+                confirm(`Delete ticket lot "${r.batchCode}" and all ${r.quantity} of its tickets? This cannot be undone.`) &&
+                deleteMut.mutate(r.id)
+              }
+            />
+          )}
         </div>
       ),
     },
@@ -78,7 +102,7 @@ export function AllTicketsPage() {
 
   return (
     <div>
-      <PageHeader title="All Tickets" description="Ticket batches across every draw slot." />
+      <PageHeader title="All Tickets" description="Ticket batches across every draw slot. Lots with no sales can be deleted." />
 
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         {cards?.map((c) => (

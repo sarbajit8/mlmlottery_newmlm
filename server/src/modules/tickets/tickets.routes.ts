@@ -12,6 +12,7 @@ import {
   ticketSearchQuerySchema,
 } from './tickets.schema.js';
 import {
+  deleteBatchHandler,
   exportBatchHandler,
   generateHandler,
   getBatchHandler,
@@ -43,6 +44,7 @@ ticketsRouter.get(
 );
 ticketsRouter.get('/batches/:id/export', requireRole(...adminRoles), validate({ params: idParamSchema }), asyncHandler(exportBatchHandler));
 ticketsRouter.post('/batches/:id/lock', requireRole(...adminRoles), validate({ params: idParamSchema }), asyncHandler(lockBatchHandler));
+ticketsRouter.delete('/batches/:id', requireRole(...adminRoles), validate({ params: idParamSchema }), asyncHandler(deleteBatchHandler));
 
 // Agent-facing ticket search for the Sell Tickets flow (any authenticated role can sell)
 ticketsRouter.get('/search', validate({ query: ticketSearchQuerySchema }), asyncHandler(searchHandler));

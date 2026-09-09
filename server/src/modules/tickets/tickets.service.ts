@@ -293,6 +293,33 @@ export async function lockBatch(id: number, actorId: number) {
   return updated;
 }
 
+/** Deletes an entire ticket lot (batch) and all of its tickets. Refused if any ticket in it has
+ *  been sold or has won — those are tied to receipts, wallet debits and commission, so the batch
+ *  can't just vanish. Unsold batches (all AVAILABLE) are safe to remove. */
+export async function deleteBatch(id: number, actorId: number) {
+  const batch = await prisma.ticketBatch.findUnique({ where: { id } });
+  if (!batch) throw ApiError.notFound('Ticket batch not found');
+
+  const soldCount = await prisma.ticket.count({ where: { batchId: id, status: { in: ['SOLD', 'WINNER'] } } });
+  if (soldCount > 0) {
+    throw ApiError.conflict(
+      `Cannot delete this lot — ${soldCount} of its ticket(s) have already been sold. Only lots with no sales can be deleted.`,
+    );
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.ticket.deleteMany({ where: { batchId: id } });
+    await tx.ticketBatch.delete({ where: { id } });
+    await logActivity(tx, {
+      actorId,
+      action: 'TICKET_BATCH_DELETE',
+      entityType: 'TicketBatch',
+      entityId: id,
+      metadata: { batchCode: batch.batchCode, quantity: batch.quantity, prefix: batch.prefix },
+    });
+  });
+}
+
 export async function getSummaryCards(drawDate?: Date) {
   const ticketWhere: Prisma.TicketWhereInput = drawDate ? { drawDate } : {};
   const batchWhere: Prisma.TicketBatchWhereInput = drawDate ? { drawDate } : {};

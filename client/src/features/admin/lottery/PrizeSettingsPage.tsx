@@ -92,7 +92,8 @@ export function PrizeSettingsPage() {
   }, [mlmSettings]);
 
   const winLevels = mlmSettings ? Array.from({ length: mlmSettings.maxLevels }, (_, i) => i + 1) : [];
-  const winTotal = winLevels.reduce((sum, lvl) => sum + (Number(winForm[lvl]) || 0), 0);
+  // Level 1 is the seller (keeps the prize) — only levels 2+ are an actual cut.
+  const winTotal = winLevels.filter((lvl) => lvl >= 2).reduce((sum, lvl) => sum + (Number(winForm[lvl]) || 0), 0);
 
   const saveWinMut = useMutation({
     mutationFn: () => {
@@ -109,7 +110,7 @@ export function PrizeSettingsPage() {
           return {
             levelNumber: lvl,
             percentage: row ? Number(row.percentage) : 0, // preserve the sale % — only win % changes here
-            winPercentage: Number(winForm[lvl]) || 0,
+            winPercentage: lvl === 1 ? 0 : Number(winForm[lvl]) || 0, // level 1 (seller) never has a win cut
           };
         }),
       });
@@ -227,9 +228,9 @@ export function PrizeSettingsPage() {
           </CardHeader>
           <CardBody className="space-y-4">
             <p className="text-xs text-slate-500">
-              When a ticket wins, this % of its (SEM-scaled) prize is paid to each level above the selling agent — level 1 is the
-              direct sponsor, and so on. Levels with no upline roll up to the company wallet. This is the same setting as the
-              “Win %” column on the MLM Settings page.
+              Level 1 is the agent who sold the winning ticket — they keep the prize, so level 1 has no cut. Levels 2+ (the
+              sponsor, then the sponsor's sponsor, …) each take their % out of that ticket's SEM-scaled prize; empty upper levels
+              roll up to the company wallet. Same setting as the “Win %” column on MLM Settings.
             </p>
 
             {!mlmSettings ? (
@@ -250,7 +251,9 @@ export function PrizeSettingsPage() {
                         min="0"
                         max="100"
                         step="0.1"
-                        value={winForm[lvl] ?? ''}
+                        disabled={lvl === 1}
+                        value={lvl === 1 ? '' : (winForm[lvl] ?? '')}
+                        placeholder={lvl === 1 ? 'seller keeps the prize' : undefined}
                         onChange={(e) => setWinForm({ ...winForm, [lvl]: e.target.value })}
                       />
                       <span className="text-xs text-slate-500">%</span>

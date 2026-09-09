@@ -32,6 +32,7 @@ export const ticketsApi = {
     axiosClient.get<Paginated<Ticket>>(`/tickets/batches/${id}/tickets`, { params }).then((r) => r.data),
   exportBatchUrl: (id: number) => `/tickets/batches/${id}/export`,
   lockBatch: (id: number) => axiosClient.post<TicketBatch>(`/tickets/batches/${id}/lock`).then((r) => r.data),
+  deleteBatch: (id: number) => axiosClient.delete(`/tickets/batches/${id}`).then((r) => r.data),
   search: (params: { drawSlotId: number; drawDate: string; seriesId?: number; q?: string; page?: number; pageSize?: number }) =>
     axiosClient.get<Paginated<Ticket>>('/tickets/search', { params }).then((r) => r.data),
 };
