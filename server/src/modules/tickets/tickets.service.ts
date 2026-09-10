@@ -7,6 +7,8 @@ import { round2 } from '../../lib/money.js';
 import { streamCsv } from '../../lib/csv.js';
 import { TICKET_GENERATION_CHUNK_SIZE } from '../../config/constants.js';
 import { getTicketBasePrice } from '../system/system.service.js';
+import { currentDrawDate, drawDateToUtc } from '../../lib/datetime.js';
+import { computeLiveStatus } from '../drawSlots/drawSlots.service.js';
 import type { Response } from 'express';
 
 function numberWidth(startNumber: number, quantity: number): number {
@@ -362,9 +364,17 @@ export interface TicketSearchQuery {
 }
 
 export async function searchAvailableTickets(query: TicketSearchQuery) {
+  // Agents can only ever sell from the slot that is OPEN_NOW, for the current business-timezone
+  // draw date. Ignore any drawDate the client sent — the server decides — and return nothing if
+  // that slot isn't actually open right now (window closed between load and search, wrong slot…).
+  const slot = await prisma.drawSlot.findUnique({ where: { id: query.drawSlotId } });
+  if (!slot || computeLiveStatus(slot) !== 'OPEN_NOW') {
+    return { items: [], total: 0, page: query.page, pageSize: query.pageSize };
+  }
+
   const where: Prisma.TicketWhereInput = {
     drawSlotId: query.drawSlotId,
-    drawDate: query.drawDate,
+    drawDate: drawDateToUtc(currentDrawDate()),
     status: 'AVAILABLE',
     batch: { status: { not: 'LOCKED' } },
     ...(query.seriesId ? { seriesId: query.seriesId } : {}),

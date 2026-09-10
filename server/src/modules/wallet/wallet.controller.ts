@@ -14,7 +14,8 @@ export async function getWalletRulesHandler(_req: Request, res: Response) {
 
 export async function listTransactionsHandler(req: Request, res: Response) {
   if (!req.user) throw ApiError.unauthorized();
-  res.json(await service.listTransactions(req.user.id, req.query as unknown as service.ListQuery));
+  const scopedUserId = req.user.role === 'SUPER_ADMIN' ? undefined : req.user.id;
+  res.json(await service.listTransactions(req.query as unknown as service.AdminTxnQuery, scopedUserId));
 }
 
 export async function requestWithdrawalHandler(req: Request, res: Response) {
@@ -78,5 +79,6 @@ export async function transferBalanceHandler(req: Request, res: Response) {
 
 export async function listTransfersHandler(req: Request, res: Response) {
   if (!req.user) throw ApiError.unauthorized();
-  res.json(await service.listTransfers(req.user.id, req.query as unknown as service.ListQuery));
+  const scopedUserId = req.user.role === 'SUPER_ADMIN' ? undefined : req.user.id;
+  res.json(await service.listTransfers(req.query as unknown as service.AdminTxnQuery, scopedUserId));
 }

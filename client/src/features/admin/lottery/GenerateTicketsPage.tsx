@@ -31,8 +31,16 @@ export function GenerateTicketsPage() {
     quantity: '100',
     pricePerTicket: '',
   });
+  const [dateTouched, setDateTouched] = useState(false);
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Default the draw date to the server's current draw date (business timezone), so generated
+  // tickets land on the same date agents are actually selling for — not the browser's UTC date.
+  useEffect(() => {
+    const serverDate = slots?.[0]?.drawDate;
+    if (serverDate && !dateTouched) setForm((f) => (f.drawDate === serverDate ? f : { ...f, drawDate: serverDate }));
+  }, [slots, dateTouched]);
 
   useEffect(() => setPreview(null), [form.drawSlotId, form.seriesId, form.prefix, form.startNumber, form.quantity, form.pricePerTicket]);
 
@@ -89,7 +97,7 @@ export function GenerateTicketsPage() {
           <CardBody className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <FormField label="Draw Date" required>
-                <Input type="date" required value={form.drawDate} onChange={(e) => setForm({ ...form, drawDate: e.target.value })} />
+                <Input type="date" required value={form.drawDate} onChange={(e) => { setDateTouched(true); setForm({ ...form, drawDate: e.target.value }); }} />
               </FormField>
               <FormField label="Draw Slot" required>
                 <Select required value={form.drawSlotId} onChange={(e) => setForm({ ...form, drawSlotId: e.target.value })}>

@@ -19,13 +19,12 @@ import { Input, Select } from '@/components/ui/Input';
 import { FormField } from '@/components/ui/FormField';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ReceiptModal } from './ReceiptModal';
-import { formatCurrency, formatTime, todayIso } from '@/utils/format';
+import { formatCurrency, formatDate, formatTime } from '@/utils/format';
 import { IconCart, IconSearch, IconTicket, IconWallet, IconX } from '@/components/ui/icons';
 import type { SaleResult } from '@/types/api';
 
 export function SellTicketsPage() {
   const qc = useQueryClient();
-  const drawDate = todayIso();
   const [seriesId, setSeriesId] = useState('');
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);
@@ -45,10 +44,12 @@ export function SellTicketsPage() {
   const openSlots = slots ?? [];
   const activeSlot = openSlots.find((s) => s.status === 'OPEN_NOW');
   const drawSlotId = activeSlot?.id;
+  // The draw date is whatever the server says the open slot's window is for — never the browser clock.
+  const drawDate = activeSlot?.drawDate;
   const nextSlot = openSlots.filter((s) => s.status === 'ACTIVE').sort((a, b) => a.salesOpenTime.localeCompare(b.salesOpenTime))[0];
 
   useEffect(() => {
-    if (drawSlotId) cart.setContext(drawSlotId, drawDate);
+    if (drawSlotId && drawDate) cart.setContext(drawSlotId, drawDate);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawSlotId, drawDate]);
 
@@ -57,12 +58,12 @@ export function SellTicketsPage() {
     queryFn: () =>
       ticketsApi.search({
         drawSlotId: drawSlotId!,
-        drawDate,
+        drawDate: drawDate!,
         seriesId: seriesId ? Number(seriesId) : undefined,
         q: debouncedSearch || undefined,
         pageSize: 60,
       }),
-    enabled: Boolean(drawSlotId),
+    enabled: Boolean(drawSlotId && drawDate),
   });
 
   const debouncedMobile = useDebounce(customer.mobile, 500);
@@ -113,7 +114,7 @@ export function SellTicketsPage() {
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
             </span>
-            Now selling <span className="font-semibold">{activeSlot.name}</span> — closes {formatTime(activeSlot.drawCloseTime)}
+            Now selling <span className="font-semibold">{activeSlot.name}</span> · {formatDate(activeSlot.drawDate)} — closes {formatTime(activeSlot.drawCloseTime)}
           </div>
         ) : (
           <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">

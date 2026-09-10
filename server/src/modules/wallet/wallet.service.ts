@@ -28,14 +28,37 @@ export interface ListQuery {
   pageSize: number;
 }
 
-export async function listTransactions(userId: number, query: ListQuery) {
-  const where = { userId };
+type WalletTxnType = 'COMMISSION' | 'WITHDRAWAL' | 'ADJUSTMENT' | 'DEPOSIT' | 'PURCHASE' | 'PRIZE' | 'TRANSFER' | 'FEE';
+
+export interface AdminTxnQuery extends ListQuery {
+  userId?: number;
+  type?: WalletTxnType;
+  q?: string;
+  from?: Date;
+  to?: Date;
+}
+
+/** `scopedUserId` set → that user's own ledger only (agents). Undefined → admin view: the whole
+ *  platform ledger with optional filters. */
+export async function listTransactions(query: AdminTxnQuery, scopedUserId?: number) {
+  const where: Prisma.WalletTransactionWhereInput = scopedUserId
+    ? { userId: scopedUserId }
+    : {
+        userId: query.userId,
+        type: query.type,
+        createdAt: query.from || query.to ? { gte: query.from, lte: query.to } : undefined,
+        ...(query.q
+          ? { user: { OR: [{ name: { contains: query.q } }, { referralCode: { contains: query.q } }, { email: { contains: query.q } }] } }
+          : {}),
+      };
+
   const [items, total] = await Promise.all([
     prisma.walletTransaction.findMany({
       where,
       orderBy: { createdAt: 'desc' },
       skip: (query.page - 1) * query.pageSize,
       take: query.pageSize,
+      include: scopedUserId ? undefined : { user: { select: { id: true, name: true, referralCode: true, role: true } } },
     }),
     prisma.walletTransaction.count({ where }),
   ]);
@@ -409,8 +432,24 @@ export async function transferBalance(fromUserId: number, input: { toReferralCod
   });
 }
 
-export async function listTransfers(userId: number, query: ListQuery) {
-  const where: Prisma.WalletTransferWhereInput = { OR: [{ fromUserId: userId }, { toUserId: userId }] };
+/** `scopedUserId` set → transfers that user sent or received (agents). Undefined → admin view:
+ *  every transfer on the platform (agent→agent, admin→agent, …) with optional filters. */
+export async function listTransfers(query: AdminTxnQuery, scopedUserId?: number) {
+  const where: Prisma.WalletTransferWhereInput = scopedUserId
+    ? { OR: [{ fromUserId: scopedUserId }, { toUserId: scopedUserId }] }
+    : {
+        createdAt: query.from || query.to ? { gte: query.from, lte: query.to } : undefined,
+        ...(query.userId ? { OR: [{ fromUserId: query.userId }, { toUserId: query.userId }] } : {}),
+        ...(query.q
+          ? {
+              OR: [
+                { fromUser: { OR: [{ name: { contains: query.q } }, { referralCode: { contains: query.q } }] } },
+                { toUser: { OR: [{ name: { contains: query.q } }, { referralCode: { contains: query.q } }] } },
+              ],
+            }
+          : {}),
+      };
+
   const [items, total] = await Promise.all([
     prisma.walletTransfer.findMany({
       where,
@@ -418,8 +457,8 @@ export async function listTransfers(userId: number, query: ListQuery) {
       skip: (query.page - 1) * query.pageSize,
       take: query.pageSize,
       include: {
-        fromUser: { select: { id: true, name: true, referralCode: true } },
-        toUser: { select: { id: true, name: true, referralCode: true } },
+        fromUser: { select: { id: true, name: true, referralCode: true, role: true } },
+        toUser: { select: { id: true, name: true, referralCode: true, role: true } },
       },
     }),
     prisma.walletTransfer.count({ where }),

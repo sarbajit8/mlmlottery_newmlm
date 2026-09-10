@@ -73,6 +73,7 @@ export interface DrawSlot {
   isActive: boolean;
   status: SlotStatus;
   salesWindowMinutes: number;
+  drawDate: string; // YYYY-MM-DD in the business timezone — the date this slot's current window sells for
 }
 
 export interface Series {
@@ -289,14 +290,18 @@ export interface CommissionLedgerEntry {
   receipt: { receiptCode: string };
 }
 
+export type WalletTxnType = 'COMMISSION' | 'WITHDRAWAL' | 'ADJUSTMENT' | 'DEPOSIT' | 'PURCHASE' | 'PRIZE' | 'TRANSFER' | 'FEE';
+
 export interface WalletTransaction {
   id: number;
-  type: 'COMMISSION' | 'WITHDRAWAL' | 'ADJUSTMENT' | 'DEPOSIT' | 'PURCHASE' | 'PRIZE' | 'TRANSFER' | 'FEE';
+  type: WalletTxnType;
   amount: string;
   balanceAfter: string;
   refId?: string | null;
   status: string;
   createdAt: string;
+  userId?: number;
+  user?: { id: number; name: string; referralCode: string; role: Role }; // admin ledger view only
 }
 
 // Admin-configured (AppSetting key "walletRules") — withdrawal minimum/step/fee and agent-to-agent
@@ -315,8 +320,8 @@ export interface WalletTransfer {
   toUserId: number;
   amount: string;
   createdAt: string;
-  fromUser?: { id: number; name: string; referralCode: string };
-  toUser?: { id: number; name: string; referralCode: string };
+  fromUser?: { id: number; name: string; referralCode: string; role?: Role };
+  toUser?: { id: number; name: string; referralCode: string; role?: Role };
 }
 
 export type DepositStatus = 'PENDING' | 'APPROVED' | 'REJECTED';

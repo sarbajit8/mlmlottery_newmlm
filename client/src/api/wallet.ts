@@ -4,7 +4,7 @@ import type { DepositRequest, DepositStatus, Paginated, WalletRules, WalletTrans
 export const walletApi = {
   get: () => axiosClient.get<{ balance: string }>('/wallet').then((r) => r.data),
   rules: () => axiosClient.get<WalletRules>('/wallet/rules').then((r) => r.data),
-  transactions: (params: { page?: number; pageSize?: number }) =>
+  transactions: (params: { page?: number; pageSize?: number; userId?: number; type?: string; q?: string; from?: string; to?: string }) =>
     axiosClient.get<Paginated<WalletTransaction>>('/wallet/transactions', { params }).then((r) => r.data),
   requestWithdrawal: (amount: number) => axiosClient.post<WithdrawalRequest>('/wallet/withdrawals', { amount }).then((r) => r.data),
   listWithdrawals: (params: { status?: WithdrawalStatus; page?: number; pageSize?: number }) =>
@@ -25,6 +25,6 @@ export const walletApi = {
     axiosClient.post<WalletTransaction>('/wallet/debit', input).then((r) => r.data),
   transfer: (input: { toReferralCode: string; amount: number }) =>
     axiosClient.post<WalletTransfer>('/wallet/transfer', input).then((r) => r.data),
-  listTransfers: (params: { page?: number; pageSize?: number }) =>
+  listTransfers: (params: { page?: number; pageSize?: number; userId?: number; q?: string; from?: string; to?: string }) =>
     axiosClient.get<Paginated<WalletTransfer>>('/wallet/transfers', { params }).then((r) => r.data),
 };

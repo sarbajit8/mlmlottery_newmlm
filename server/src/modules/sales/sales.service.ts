@@ -5,6 +5,8 @@ import { logActivity } from '../../middleware/auditLog.js';
 import { generateReceiptCode } from '../../lib/codes.js';
 import { round2 } from '../../lib/money.js';
 import { buildReceiptWaLink } from '../../lib/waLink.js';
+import { currentDrawDate, drawDateToIso } from '../../lib/datetime.js';
+import { computeLiveStatus } from '../drawSlots/drawSlots.service.js';
 import { computeCommissionsForSale } from '../mlm/commission.engine.js';
 
 export interface CreateSaleInput {
@@ -60,6 +62,17 @@ async function runCreateSale(input: CreateSaleInput, agentId: number) {
       const drawDate = tickets[0].drawDate;
       if (tickets.some((t) => t.drawSlotId !== drawSlotId || t.drawDate.getTime() !== drawDate.getTime())) {
         throw ApiError.badRequest('All tickets in a single sale must belong to the same draw date and slot');
+      }
+
+      // The tickets must be for the draw window that is open RIGHT NOW — not a slot that has since
+      // closed, and not a stale draw date. Guards against selling the wrong day's tickets after the
+      // Sell page has been left open across the slot cutover / midnight.
+      if (drawDateToIso(drawDate) !== currentDrawDate()) {
+        throw ApiError.badRequest('These tickets are for a different draw date. Refresh the page and try again.');
+      }
+      const slot = await tx.drawSlot.findUnique({ where: { id: drawSlotId } });
+      if (!slot || computeLiveStatus(slot) !== 'OPEN_NOW') {
+        throw ApiError.badRequest('Sales for this draw slot are not open right now. Refresh the page and try again.');
       }
 
       let customer = await tx.customer.findUnique({

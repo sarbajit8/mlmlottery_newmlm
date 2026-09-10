@@ -19,6 +19,12 @@ export const exportWithdrawalsQuerySchema = z.object({
 });
 
 export const listTransactionsQuerySchema = z.object({
+  // Admin-only filters (ignored for a non-admin — they always see just their own).
+  userId: z.coerce.number().int().positive().optional(),
+  type: z.enum(['COMMISSION', 'WITHDRAWAL', 'ADJUSTMENT', 'DEPOSIT', 'PURCHASE', 'PRIZE', 'TRANSFER', 'FEE']).optional(),
+  q: z.string().trim().optional(),
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });

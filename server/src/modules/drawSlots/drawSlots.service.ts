@@ -2,6 +2,7 @@ import type { DrawSlot, SlotStatus } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { ApiError } from '../../lib/apiError.js';
 import { logActivity } from '../../middleware/auditLog.js';
+import { businessNow, currentDrawDate } from '../../lib/datetime.js';
 
 function timeStringToDate(time: string): Date {
   const [h, m, s = '0'] = time.split(':');
@@ -12,15 +13,11 @@ function minutesOfDayUTC(d: Date): number {
   return d.getUTCHours() * 60 + d.getUTCMinutes();
 }
 
-function minutesOfDayLocalNow(): number {
-  const now = new Date();
-  return now.getHours() * 60 + now.getMinutes();
-}
-
-/** Pure function: derive today's live status for a slot from its template times + current wall-clock time. */
+/** Derive a slot's live status from its template times vs the current wall clock in the BUSINESS
+ *  timezone (not the server OS timezone — see lib/datetime). */
 export function computeLiveStatus(slot: Pick<DrawSlot, 'isActive' | 'salesOpenTime' | 'drawCloseTime'>): SlotStatus {
   if (!slot.isActive) return 'CLOSED';
-  const nowMin = minutesOfDayLocalNow();
+  const nowMin = businessNow().minutesOfDay;
   const openMin = minutesOfDayUTC(slot.salesOpenTime);
   const closeMin = minutesOfDayUTC(slot.drawCloseTime);
   if (nowMin < openMin) return 'ACTIVE';
@@ -35,6 +32,9 @@ function present(slot: DrawSlot) {
     ...slot,
     status: computeLiveStatus(slot), // lazy recompute so the UI is never stale even if the cron tick lags
     salesWindowMinutes: closeMin - openMin,
+    // The draw date this slot's current window sells for — always "today" in the business timezone,
+    // since slots don't cross midnight. The agent Sell page uses this, never the browser's clock.
+    drawDate: currentDrawDate(),
   };
 }
 
