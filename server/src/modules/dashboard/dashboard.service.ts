@@ -1,27 +1,27 @@
 import { Prisma, type TicketStatus } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
+import { businessNow, startOfBusinessDay, startOfBusinessMonth } from '../../lib/datetime.js';
 
 const SOLD_STATUSES: TicketStatus[] = ['SOLD', 'WINNER'];
-
-function startOfToday(): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function startOfMonth(): Date {
-  const d = new Date();
-  d.setDate(1);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
 
 function dec(v: Prisma.Decimal | null | undefined): Prisma.Decimal {
   return v ?? new Prisma.Decimal(0);
 }
 
+/** Ids that are not real agent payouts — the company wallet / super admin (they receive the
+ *  rolled-up shortfall commission, which shouldn't count as "commission paid out"). */
+async function houseAgentIds(): Promise<number[]> {
+  const rows = await prisma.user.findMany({
+    where: { OR: [{ isCompanyWallet: true }, { role: 'SUPER_ADMIN' }] },
+    select: { id: true },
+  });
+  return rows.map((r) => r.id);
+}
+
 export async function getAdminDashboard() {
-  const today = startOfToday();
+  const today = startOfBusinessDay();
+  const house = await houseAgentIds();
+  const paidToAgents: Prisma.CommissionLedgerWhereInput = { status: 'PAID', earningAgentId: { notIn: house } };
 
   const [
     todayAgg,
@@ -35,8 +35,8 @@ export async function getAdminDashboard() {
     prisma.ticket.aggregate({ where: { status: { in: SOLD_STATUSES }, soldAt: { gte: today } }, _count: true, _sum: { price: true } }),
     prisma.ticket.aggregate({ where: { status: { in: SOLD_STATUSES } }, _count: true, _sum: { price: true } }),
     prisma.user.count({ where: { role: { not: 'SUPER_ADMIN' }, status: 'ACTIVE' } }),
-    prisma.commissionLedger.aggregate({ where: { status: 'PAID', paidAt: { gte: today } }, _sum: { commissionAmount: true } }),
-    prisma.commissionLedger.aggregate({ where: { status: 'PAID' }, _sum: { commissionAmount: true } }),
+    prisma.commissionLedger.aggregate({ where: { ...paidToAgents, paidAt: { gte: today } }, _sum: { commissionAmount: true } }),
+    prisma.commissionLedger.aggregate({ where: paidToAgents, _sum: { commissionAmount: true } }),
     prisma.withdrawalRequest.count({ where: { status: 'PENDING' } }),
     getTrend(7),
   ]);
@@ -55,27 +55,26 @@ export async function getAdminDashboard() {
 }
 
 async function getTrend(days: number) {
+  const todayStart = startOfBusinessDay();
   const results: { date: string; tickets: number; revenue: number }[] = [];
   for (let i = days - 1; i >= 0; i--) {
-    const dayStart = new Date();
-    dayStart.setHours(0, 0, 0, 0);
-    dayStart.setDate(dayStart.getDate() - i);
-    const dayEnd = new Date(dayStart);
-    dayEnd.setDate(dayEnd.getDate() + 1);
+    const dayStart = new Date(todayStart.getTime() - i * 86_400_000);
+    const dayEnd = new Date(dayStart.getTime() + 86_400_000);
 
     const agg = await prisma.ticket.aggregate({
       where: { status: { in: SOLD_STATUSES }, soldAt: { gte: dayStart, lt: dayEnd } },
       _count: true,
       _sum: { price: true },
     });
-    results.push({ date: dayStart.toISOString().slice(0, 10), tickets: agg._count, revenue: dec(agg._sum?.price).toNumber() });
+    const label = businessNow(new Date(dayStart.getTime() + 3_600_000)).date; // 1am inside that business day
+    results.push({ date: label, tickets: agg._count, revenue: dec(agg._sum?.price).toNumber() });
   }
   return results;
 }
 
 export async function getAgentDashboard(userId: number) {
-  const today = startOfToday();
-  const month = startOfMonth();
+  const today = startOfBusinessDay();
+  const month = startOfBusinessMonth();
 
   const [todayAgg, monthAgg, todayCommission, teamSalesAgg, directCount] = await Promise.all([
     prisma.ticket.aggregate({

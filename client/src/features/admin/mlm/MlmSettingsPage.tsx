@@ -25,7 +25,6 @@ export function MlmSettingsPage() {
 
   const [maxLevels, setMaxLevels] = useState(5);
   const [payoutMode, setPayoutMode] = useState<'INSTANT' | 'BATCH'>('INSTANT');
-  const [shortfallPolicy, setShortfallPolicy] = useState<'FORFEIT' | 'ROLLUP_TO_ADMIN'>('ROLLUP_TO_ADMIN');
   const [minPayoutThreshold, setMinPayoutThreshold] = useState('0');
   const [levels, setLevels] = useState<LevelRow[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +39,6 @@ export function MlmSettingsPage() {
     if (!settings) return;
     setMaxLevels(settings.maxLevels);
     setPayoutMode(settings.payoutMode);
-    setShortfallPolicy(settings.shortfallPolicy);
     setMinPayoutThreshold(settings.minPayoutThreshold);
     setLevels(
       Array.from({ length: settings.maxLevels }, (_, i) => {
@@ -105,7 +103,7 @@ export function MlmSettingsPage() {
         commissionBase: 'SEM_VALUE',
         payoutMode,
         minPayoutThreshold: Number(minPayoutThreshold),
-        shortfallPolicy,
+        shortfallPolicy: 'ROLLUP_TO_ADMIN',
         levelPercentages: levels.map((l) => ({
           levelNumber: l.levelNumber,
           percentage: Number(l.percentage) || 0,
@@ -148,12 +146,10 @@ export function MlmSettingsPage() {
             <FormField label="Minimum Payout Threshold">
               <Input type="number" min="0" step="0.01" value={minPayoutThreshold} onChange={(e) => setMinPayoutThreshold(e.target.value)} />
             </FormField>
-            <FormField label="Shortfall Policy" hint="What happens to levels beyond an agent's upline chain">
-              <Select value={shortfallPolicy} onChange={(e) => setShortfallPolicy(e.target.value as 'FORFEIT' | 'ROLLUP_TO_ADMIN')}>
-                <option value="ROLLUP_TO_ADMIN">Roll up to Company Wallet</option>
-                <option value="FORFEIT">Forfeit</option>
-              </Select>
-            </FormField>
+            <p className="rounded-lg border border-white/8 bg-white/[0.02] px-3 py-2 text-xs text-slate-400">
+              Levels the selling agent doesn't have an upline for (a thin chain) always roll up to the admin / company wallet —
+              that commission is never forfeited.
+            </p>
           </CardBody>
         </Card>
 

@@ -25,6 +25,7 @@ import { CommissionReportsPage } from '@/features/admin/mlm/CommissionReportsPag
 import { WithdrawalRequestsPage } from '@/features/admin/mlm/WithdrawalRequestsPage';
 import { ReportsPage } from '@/features/admin/finance/ReportsPage';
 import { TransactionHistoryPage } from '@/features/admin/finance/TransactionHistoryPage';
+import { AgentActivityPage } from '@/features/admin/finance/AgentActivityPage';
 import { PaymentMethodsPage } from '@/features/admin/finance/PaymentMethodsPage';
 import { DepositRequestsPage } from '@/features/admin/finance/DepositRequestsPage';
 import { ActivityLogsPage } from '@/features/admin/system/ActivityLogsPage';
@@ -71,6 +72,7 @@ export function App() {
               <Route path="/admin/mlm/withdrawals" element={<WithdrawalRequestsPage />} />
               <Route path="/admin/finance/reports" element={<ReportsPage />} />
               <Route path="/admin/finance/transactions" element={<TransactionHistoryPage />} />
+              <Route path="/admin/finance/agent-activity" element={<AgentActivityPage />} />
               <Route path="/admin/finance/payouts" element={<WithdrawalRequestsPage />} />
               <Route path="/admin/finance/deposits" element={<DepositRequestsPage />} />
               <Route path="/admin/finance/payment-methods" element={<PaymentMethodsPage />} />

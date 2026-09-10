@@ -1,46 +1,36 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { walletApi } from '@/api/wallet';
-import { usersApi } from '@/api/users';
 import { apiErrorMessage } from '@/api/axiosClient';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Button } from '@/components/ui/Button';
-import { Modal } from '@/components/ui/Modal';
-import { Input, Select } from '@/components/ui/Input';
-import { FormField } from '@/components/ui/FormField';
-import { StatusBadge } from '@/components/ui/Badge';
+import { Select } from '@/components/ui/Input';
+import { Badge, StatusBadge } from '@/components/ui/Badge';
 import { toast } from '@/store/toastStore';
+import { cn } from '@/utils/cn';
 import { formatCurrency, formatDateTime } from '@/utils/format';
-import { IconMinus, IconPlus } from '@/components/ui/icons';
-import type { DepositRequest, DepositStatus } from '@/types/api';
+import { WalletAdjust } from './WalletAdjust';
+import type { DepositRequest, DepositStatus, WalletAdjustment } from '@/types/api';
 
 export function DepositRequestsPage() {
   const qc = useQueryClient();
+  const [tab, setTab] = useState<'requests' | 'adjustments'>('requests');
   const [status, setStatus] = useState<DepositStatus | ''>('PENDING');
   const [page, setPage] = useState(1);
-
-  const [creditOpen, setCreditOpen] = useState(false);
-  const [creditUserId, setCreditUserId] = useState('');
-  const [creditAmount, setCreditAmount] = useState('');
-  const [creditNote, setCreditNote] = useState('');
-  const [creditError, setCreditError] = useState<string | null>(null);
-
-  const [debitOpen, setDebitOpen] = useState(false);
-  const [debitUserId, setDebitUserId] = useState('');
-  const [debitAmount, setDebitAmount] = useState('');
-  const [debitNote, setDebitNote] = useState('');
-  const [debitError, setDebitError] = useState<string | null>(null);
+  const [adjPage, setAdjPage] = useState(1);
 
   const { data, isLoading } = useQuery({
     queryKey: ['deposits', status, page],
     queryFn: () => walletApi.listDeposits({ status: status || undefined, page, pageSize: 20 }),
+    enabled: tab === 'requests',
   });
-  const { data: agents } = useQuery({
-    queryKey: ['users-agents-for-credit'],
-    queryFn: () => usersApi.list({ role: 'AGENT', pageSize: 200 }),
-    enabled: creditOpen || debitOpen,
+
+  const { data: adjustments, isLoading: adjLoading } = useQuery({
+    queryKey: ['wallet-adjustments', adjPage],
+    queryFn: () => walletApi.adjustments({ page: adjPage, pageSize: 20 }),
+    enabled: tab === 'adjustments',
   });
 
   const processMut = useMutation({
@@ -51,37 +41,6 @@ export function DepositRequestsPage() {
     },
     onError: (err) => toast.error(apiErrorMessage(err)),
   });
-
-  const creditMut = useMutation({
-    mutationFn: () => walletApi.adminCredit({ userId: Number(creditUserId), amount: Number(creditAmount), note: creditNote.trim() || undefined }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['deposits'] });
-      toast.success('Wallet credited');
-      setCreditOpen(false);
-      setCreditUserId('');
-      setCreditAmount('');
-      setCreditNote('');
-      setCreditError(null);
-    },
-    onError: (err) => setCreditError(apiErrorMessage(err)),
-  });
-
-  const debitMut = useMutation({
-    mutationFn: () => walletApi.adminDebit({ userId: Number(debitUserId), amount: Number(debitAmount), note: debitNote.trim() || undefined }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['deposits'] });
-      toast.success('Wallet debited');
-      setDebitOpen(false);
-      setDebitUserId('');
-      setDebitAmount('');
-      setDebitNote('');
-      setDebitError(null);
-    },
-    onError: (err) => setDebitError(apiErrorMessage(err)),
-  });
-
-  const selectedCreditAgent = agents?.items.find((a) => a.id === Number(creditUserId));
-  const selectedDebitAgent = agents?.items.find((a) => a.id === Number(debitUserId));
 
   const columns: Column<DepositRequest>[] = [
     { key: 'user', header: 'Agent', render: (r) => <span className="font-medium text-slate-100">{r.user?.name}</span> },
@@ -108,19 +67,60 @@ export function DepositRequestsPage() {
     },
   ];
 
+  const adjColumns: Column<WalletAdjustment>[] = [
+    { key: 'when', header: 'Date', render: (r) => <span className="text-xs text-slate-400">{formatDateTime(r.at)}</span> },
+    {
+      key: 'agent',
+      header: 'Agent',
+      render: (r) =>
+        r.user ? (
+          <div>
+            <span className="font-medium text-slate-100">{r.user.name}</span>
+            <span className="ml-1.5 font-mono text-[10px] text-slate-500">{r.user.referralCode}</span>
+          </div>
+        ) : (
+          '—'
+        ),
+    },
+    { key: 'kind', header: 'Type', render: (r) => <Badge tone={r.kind === 'CREDIT' ? 'green' : 'red'}>{r.kind === 'CREDIT' ? 'Credit' : 'Debit'}</Badge> },
+    {
+      key: 'amount',
+      header: 'Amount',
+      render: (r) => (
+        <span className={cn('font-semibold', r.kind === 'CREDIT' ? 'text-emerald-300' : 'text-red-300')}>
+          {r.kind === 'CREDIT' ? '+' : '−'} {formatCurrency(r.amount)}
+        </span>
+      ),
+    },
+    { key: 'note', header: 'Note / Reason', render: (r) => <span className="text-xs text-slate-400">{r.note ?? '—'}</span> },
+    { key: 'by', header: 'By', render: (r) => <span className="text-xs text-slate-500">{r.by ?? 'Admin'}</span> },
+  ];
+
   return (
     <div>
       <PageHeader
-        title="Deposit Requests"
-        description="Approve or reject agent wallet top-ups, or credit/debit an individual agent's wallet directly."
+        title="Deposits & Wallet Adjustments"
+        description="Approve or reject agent wallet top-ups, or credit / debit an agent's wallet directly. The Adjustments tab lists every manual credit and debit."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Button icon={<IconPlus className="h-4 w-4" />} onClick={() => setCreditOpen(true)}>
-              Credit Wallet
-            </Button>
-            <Button variant="secondary" accent="amber" icon={<IconMinus className="h-4 w-4" />} onClick={() => setDebitOpen(true)}>
-              Debit Wallet
-            </Button>
+            {/* After a direct credit/debit, drop the "Pending" filter so the just-made entry is visible. */}
+            <WalletAdjust onDone={() => { setStatus(''); setPage(1); setAdjPage(1); }} />
+          </div>
+        }
+      />
+
+      <div className="mb-4 flex gap-2">
+        <Button size="sm" variant={tab === 'requests' ? 'primary' : 'secondary'} onClick={() => setTab('requests')}>
+          Deposit Requests
+        </Button>
+        <Button size="sm" variant={tab === 'adjustments' ? 'primary' : 'secondary'} onClick={() => setTab('adjustments')}>
+          Manual Adjustments
+        </Button>
+      </div>
+
+      {tab === 'requests' ? (
+        <Card>
+          <div className="flex flex-wrap items-center gap-2 border-b border-white/8 p-4">
             <Select value={status} onChange={(e) => { setStatus(e.target.value as DepositStatus | ''); setPage(1); }} className="max-w-40">
               <option value="">All statuses</option>
               <option value="PENDING">Pending</option>
@@ -128,73 +128,28 @@ export function DepositRequestsPage() {
               <option value="REJECTED">Rejected</option>
             </Select>
           </div>
-        }
-      />
-      <Card>
-        <DataTable columns={columns} data={data?.items ?? []} rowKey={(r) => r.id} loading={isLoading} total={data?.total} page={page} pageSize={20} onPageChange={setPage} emptyTitle="No deposit requests" />
-      </Card>
-
-      <Modal open={creditOpen} onClose={() => setCreditOpen(false)} title="Credit Wallet Directly">
-        <form onSubmit={(e) => { e.preventDefault(); creditMut.mutate(); }} className="space-y-4">
-          <p className="text-sm text-slate-400">Adds money to an agent's wallet immediately — no approval step. Use this for cash or any payment received outside of UPI.</p>
-          <FormField label="Agent" required>
-            <Select required value={creditUserId} onChange={(e) => setCreditUserId(e.target.value)}>
-              <option value="">Select an agent</option>
-              {agents?.items.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name} — {a.referralCode}
-                </option>
-              ))}
-            </Select>
-          </FormField>
-          {selectedCreditAgent && (
-            <p className="text-xs text-slate-500">
-              Current balance: <span className="font-semibold text-slate-300">{formatCurrency(selectedCreditAgent.walletBalance)}</span>
-            </p>
-          )}
-          <FormField label="Amount" required>
-            <Input type="number" min="1" step="0.01" required value={creditAmount} onChange={(e) => setCreditAmount(e.target.value)} />
-          </FormField>
-          <FormField label="Note (optional)" hint="e.g. 'Cash received in office' — shown in the deposit history.">
-            <Input value={creditNote} onChange={(e) => setCreditNote(e.target.value)} maxLength={500} />
-          </FormField>
-          {creditError && <p className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300">{creditError}</p>}
-          <Button type="submit" className="w-full" loading={creditMut.isPending}>
-            Credit Wallet
-          </Button>
-        </form>
-      </Modal>
-
-      <Modal open={debitOpen} onClose={() => setDebitOpen(false)} title="Debit Wallet Directly">
-        <form onSubmit={(e) => { e.preventDefault(); debitMut.mutate(); }} className="space-y-4">
-          <p className="text-sm text-slate-400">Removes money from an agent's wallet immediately — e.g. correcting a mistake or a penalty. Can't take the balance below zero.</p>
-          <FormField label="Agent" required>
-            <Select required value={debitUserId} onChange={(e) => setDebitUserId(e.target.value)}>
-              <option value="">Select an agent</option>
-              {agents?.items.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name} — {a.referralCode}
-                </option>
-              ))}
-            </Select>
-          </FormField>
-          {selectedDebitAgent && (
-            <p className="text-xs text-slate-500">
-              Current balance: <span className="font-semibold text-slate-300">{formatCurrency(selectedDebitAgent.walletBalance)}</span>
-            </p>
-          )}
-          <FormField label="Amount" required>
-            <Input type="number" min="1" step="0.01" required value={debitAmount} onChange={(e) => setDebitAmount(e.target.value)} />
-          </FormField>
-          <FormField label="Reason (optional)" hint="e.g. 'Correcting duplicate credit' — shown in the wallet transaction history.">
-            <Input value={debitNote} onChange={(e) => setDebitNote(e.target.value)} maxLength={500} />
-          </FormField>
-          {debitError && <p className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300">{debitError}</p>}
-          <Button type="submit" accent="amber" className="w-full" loading={debitMut.isPending}>
-            Debit Wallet
-          </Button>
-        </form>
-      </Modal>
+          <div className="overflow-x-auto">
+            <DataTable columns={columns} data={data?.items ?? []} rowKey={(r) => r.id} loading={isLoading} total={data?.total} page={page} pageSize={20} onPageChange={setPage} emptyTitle="No deposit requests" />
+          </div>
+        </Card>
+      ) : (
+        <Card>
+          <div className="overflow-x-auto">
+            <DataTable
+              columns={adjColumns}
+              data={adjustments?.items ?? []}
+              rowKey={(r) => r.id}
+              loading={adjLoading}
+              total={adjustments?.total}
+              page={adjPage}
+              pageSize={20}
+              onPageChange={setAdjPage}
+              emptyTitle="No manual adjustments yet"
+              emptyDescription="Direct wallet credits and debits will appear here."
+            />
+          </div>
+        </Card>
+      )}
     </div>
   );
 }

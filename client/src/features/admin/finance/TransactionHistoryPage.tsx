@@ -10,6 +10,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Badge } from '@/components/ui/Badge';
 import { formatCurrency, formatDateTime } from '@/utils/format';
 import { cn } from '@/utils/cn';
+import { WalletAdjust } from './WalletAdjust';
 import type { WalletTransaction, WalletTransfer, WalletTxnType } from '@/types/api';
 
 const TXN_TYPES: WalletTxnType[] = ['COMMISSION', 'WITHDRAWAL', 'ADJUSTMENT', 'DEPOSIT', 'PURCHASE', 'PRIZE', 'TRANSFER', 'FEE'];
@@ -118,6 +119,7 @@ export function TransactionHistoryPage() {
       <PageHeader
         title="Transaction History"
         description="Every wallet movement across the platform — commissions, prizes, purchases, deposits, withdrawals, admin adjustments and agent-to-agent transfers."
+        actions={<div className="flex flex-wrap gap-2"><WalletAdjust onDone={() => { ledger.refetch(); transfers.refetch(); }} /></div>}
       />
 
       <Card>

@@ -364,22 +364,36 @@ export interface TicketSearchQuery {
 }
 
 export async function searchAvailableTickets(query: TicketSearchQuery) {
-  // Agents can only ever sell from the slot that is OPEN_NOW, for the current business-timezone
-  // draw date. Ignore any drawDate the client sent — the server decides — and return nothing if
-  // that slot isn't actually open right now (window closed between load and search, wrong slot…).
+  // Agents sell for the slot that is OPEN_NOW, or — when there's a gap between windows — for the
+  // next upcoming slot (ACTIVE) so the page is never dead. A DRAW_DONE / CLOSED slot is not
+  // sellable. Always for the current business-timezone draw date (client's drawDate is ignored).
   const slot = await prisma.drawSlot.findUnique({ where: { id: query.drawSlotId } });
-  if (!slot || computeLiveStatus(slot) !== 'OPEN_NOW') {
+  const live = slot && computeLiveStatus(slot);
+  if (!slot || (live !== 'OPEN_NOW' && live !== 'ACTIVE')) {
     return { items: [], total: 0, page: query.page, pageSize: query.pageSize };
   }
 
-  const where: Prisma.TicketWhereInput = {
+  const term = query.q?.trim().toUpperCase();
+  const baseWhere: Prisma.TicketWhereInput = {
     drawSlotId: query.drawSlotId,
     drawDate: drawDateToUtc(currentDrawDate()),
     status: 'AVAILABLE',
     batch: { status: { not: 'LOCKED' } },
     ...(query.seriesId ? { seriesId: query.seriesId } : {}),
-    ...(query.q ? { ticketNumber: { contains: query.q } } : {}),
   };
+
+  // Searching "0001" should surface that ticket AND the ones that follow it (0002, 0003, …) so the
+  // agent can grab a consecutive block. We find the first available ticket whose number ends with
+  // the search, then return everything from there onward in order.
+  const where: Prisma.TicketWhereInput = { ...baseWhere };
+  if (term) {
+    const anchor = await prisma.ticket.findFirst({
+      where: { ...baseWhere, ticketNumber: { endsWith: term } },
+      orderBy: { ticketNumber: 'asc' },
+      select: { ticketNumber: true },
+    });
+    where.ticketNumber = anchor ? { gte: anchor.ticketNumber } : { endsWith: term };
+  }
 
   const [items, total] = await Promise.all([
     prisma.ticket.findMany({

@@ -27,16 +27,17 @@ export interface CommissionComputation {
  *
  * Level 1 is the SELLING AGENT themselves (the person who sold the ticket / holds the prize),
  * level 2 is their sponsor, level 3 the sponsor's sponsor, and so on up the tree. A sponsor cycle
- * / self-sponsor stops the walk (so one user can't collect several levels), and any level with no
- * real person behind it is a shortfall — sent to the company wallet under ROLLUP_TO_ADMIN, dropped
- * under FORFEIT.
+ * / self-sponsor stops the walk (so one user can't collect several levels).
+ *
+ * Any level with no real person behind it — the seller doesn't have that many uplines — ALWAYS
+ * rolls up to the company wallet (admin). So if a seller has, say, only 1 sponsor, levels 3, 4, 5
+ * of the commission all go to admin. Never forfeited.
  */
 async function resolveUplineChain(
   tx: Tx,
   sellingAgentId: number,
   maxLevels: number,
-  shortfallPolicy: 'FORFEIT' | 'ROLLUP_TO_ADMIN',
-  companyWalletId: number | null,
+  companyWalletId: number,
 ): Promise<{ level: number; agentId: number }[]> {
   const chain: { level: number; agentId: number }[] = maxLevels >= 1 ? [{ level: 1, agentId: sellingAgentId }] : [];
   const seen = new Set<number>([sellingAgentId]);
@@ -49,11 +50,10 @@ async function resolveUplineChain(
     currentId = current.sponsorId;
   }
 
-  if (shortfallPolicy === 'ROLLUP_TO_ADMIN' && companyWalletId) {
-    const filled = new Set(chain.map((c) => c.level));
-    for (let level = 1; level <= maxLevels; level++) {
-      if (!filled.has(level)) chain.push({ level, agentId: companyWalletId });
-    }
+  // Every unfilled level's share goes to admin — no configurable "forfeit".
+  const filled = new Set(chain.map((c) => c.level));
+  for (let level = 1; level <= maxLevels; level++) {
+    if (!filled.has(level)) chain.push({ level, agentId: companyWalletId });
   }
 
   return chain;
@@ -65,11 +65,10 @@ async function getActiveSettingsAndCompany(tx: Tx) {
     orderBy: { effectiveFrom: 'desc' },
     include: { levelPercentages: true },
   });
-  const companyWallet = await tx.user.findFirst({
-    where: { isCompanyWallet: true },
-    orderBy: { id: 'asc' },
-    select: { id: true },
-  });
+  // The rollup target: the explicit company-wallet account, or (fallback) the Super Admin.
+  const companyWallet =
+    (await tx.user.findFirst({ where: { isCompanyWallet: true }, orderBy: { id: 'asc' }, select: { id: true } })) ??
+    (await tx.user.findFirst({ where: { role: 'SUPER_ADMIN' }, orderBy: { id: 'asc' }, select: { id: true } }));
   return { settings, companyWalletId: companyWallet?.id ?? null };
 }
 
@@ -81,12 +80,12 @@ async function getActiveSettingsAndCompany(tx: Tx) {
  */
 export async function computeCommissionsForSale(tx: Tx, params: ComputeCommissionsParams): Promise<CommissionComputation> {
   const { settings, companyWalletId } = await getActiveSettingsAndCompany(tx);
-  if (!settings) {
-    return { ledgerRows: [], walletCredits: new Map(), payoutMode: 'INSTANT' };
+  if (!settings || companyWalletId === null) {
+    return { ledgerRows: [], walletCredits: new Map(), payoutMode: settings?.payoutMode ?? 'INSTANT' };
   }
 
   const pctByLevel = new Map(settings.levelPercentages.map((lp) => [lp.levelNumber, lp.percentage]));
-  const chain = await resolveUplineChain(tx, params.sellingAgentId, settings.maxLevels, settings.shortfallPolicy, companyWalletId);
+  const chain = await resolveUplineChain(tx, params.sellingAgentId, settings.maxLevels, companyWalletId);
 
   const ledgerRows: Prisma.CommissionLedgerCreateManyInput[] = [];
   const walletCredits = new Map<number, Prisma.Decimal>();
@@ -144,8 +143,8 @@ export async function computePrizeWinCommissions(
   params: { drawResultId: number; winners: PrizeWinner[] },
 ): Promise<CommissionComputation> {
   const { settings, companyWalletId } = await getActiveSettingsAndCompany(tx);
-  if (!settings) {
-    return { ledgerRows: [], walletCredits: new Map(), payoutMode: 'INSTANT' };
+  if (!settings || companyWalletId === null) {
+    return { ledgerRows: [], walletCredits: new Map(), payoutMode: settings?.payoutMode ?? 'INSTANT' };
   }
 
   const ratesByTier = await getPrizeWinCommission();
@@ -167,7 +166,7 @@ export async function computePrizeWinCommissions(
 
     let chain = chainCache.get(winner.sellerAgentId);
     if (!chain) {
-      chain = await resolveUplineChain(tx, winner.sellerAgentId, settings.maxLevels, settings.shortfallPolicy, companyWalletId);
+      chain = await resolveUplineChain(tx, winner.sellerAgentId, settings.maxLevels, companyWalletId);
       chainCache.set(winner.sellerAgentId, chain);
     }
 

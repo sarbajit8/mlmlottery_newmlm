@@ -19,4 +19,12 @@ export const listSalesQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
 
+export const salesReportQuerySchema = z.object({
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+  agentId: z.coerce.number().int().positive().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(200).default(50),
+});
+
 export const idParamSchema = z.object({ id: z.coerce.number().int().positive() });

@@ -64,15 +64,16 @@ async function runCreateSale(input: CreateSaleInput, agentId: number) {
         throw ApiError.badRequest('All tickets in a single sale must belong to the same draw date and slot');
       }
 
-      // The tickets must be for the draw window that is open RIGHT NOW — not a slot that has since
-      // closed, and not a stale draw date. Guards against selling the wrong day's tickets after the
-      // Sell page has been left open across the slot cutover / midnight.
+      // The tickets must be for today's draw date and a slot whose draw hasn't happened yet
+      // (OPEN_NOW, or ACTIVE = opening soon). Guards against selling the wrong day's tickets, or a
+      // slot that already drew, after the Sell page has been left open across a cutover / midnight.
       if (drawDateToIso(drawDate) !== currentDrawDate()) {
         throw ApiError.badRequest('These tickets are for a different draw date. Refresh the page and try again.');
       }
       const slot = await tx.drawSlot.findUnique({ where: { id: drawSlotId } });
-      if (!slot || computeLiveStatus(slot) !== 'OPEN_NOW') {
-        throw ApiError.badRequest('Sales for this draw slot are not open right now. Refresh the page and try again.');
+      const slotStatus = slot && computeLiveStatus(slot);
+      if (!slot || (slotStatus !== 'OPEN_NOW' && slotStatus !== 'ACTIVE')) {
+        throw ApiError.badRequest('Sales for this draw slot have closed. Refresh the page and try again.');
       }
 
       let customer = await tx.customer.findUnique({
@@ -249,6 +250,100 @@ export async function listSales(query: ListSalesQuery, requester: { id: number; 
   ]);
 
   return { items, total, page: query.page, pageSize: query.pageSize };
+}
+
+export interface SalesReportQuery {
+  from?: Date;
+  to?: Date;
+  agentId?: number;
+  page: number;
+  pageSize: number;
+}
+
+/** Per-sale detail for the admin activity report: who sold, which tickets, what they paid, and the
+ *  commission that sale generated (split into what the seller earned vs what went up the chain).
+ *  Admin sees all agents; an agent sees only their own. */
+export async function getSalesReport(query: SalesReportQuery, requester: { id: number; role: string }) {
+  const isAdmin = requester.role === 'SUPER_ADMIN';
+  const where: Prisma.ReceiptWhereInput = {
+    agentId: isAdmin ? query.agentId : requester.id,
+    createdAt: query.from || query.to ? { gte: query.from, lte: query.to } : undefined,
+  };
+
+  const [receipts, total, receiptTotals, commissionTotal] = await Promise.all([
+    prisma.receipt.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: (query.page - 1) * query.pageSize,
+      take: query.pageSize,
+      include: {
+        agent: { select: { id: true, name: true, referralCode: true } },
+        customer: { select: { name: true, mobile: true } },
+        drawSlot: { select: { name: true } },
+        tickets: { select: { ticketNumber: true, series: { select: { name: true } } } },
+      },
+    }),
+    prisma.receipt.count({ where }),
+    prisma.receipt.aggregate({ where, _sum: { totalAmount: true, totalSemValue: true, totalTickets: true } }),
+    prisma.commissionLedger.aggregate({ where: { kind: 'SALE', receipt: where }, _sum: { commissionAmount: true } }),
+  ]);
+
+  // Commission per receipt, and how much of it the selling agent themselves earned (level 1).
+  const receiptIds = receipts.map((r) => r.id);
+  const commRows = receiptIds.length
+    ? await prisma.commissionLedger.groupBy({
+        by: ['receiptId', 'earningAgentId'],
+        where: { receiptId: { in: receiptIds }, kind: 'SALE' },
+        _sum: { commissionAmount: true },
+      })
+    : [];
+
+  const agentByReceipt = new Map(receipts.map((r) => [r.id, r.agentId]));
+  const commByReceipt = new Map<number, { total: Prisma.Decimal; seller: Prisma.Decimal }>();
+  for (const row of commRows) {
+    const amt = row._sum.commissionAmount ?? new Prisma.Decimal(0);
+    const cur = commByReceipt.get(row.receiptId) ?? { total: new Prisma.Decimal(0), seller: new Prisma.Decimal(0) };
+    cur.total = cur.total.plus(amt);
+    if (row.earningAgentId === agentByReceipt.get(row.receiptId)) cur.seller = cur.seller.plus(amt);
+    commByReceipt.set(row.receiptId, cur);
+  }
+
+  const items = receipts.map((r) => {
+    const c = commByReceipt.get(r.id) ?? { total: new Prisma.Decimal(0), seller: new Prisma.Decimal(0) };
+    const bySeries = new Map<string, number>();
+    for (const t of r.tickets) bySeries.set(t.series.name, (bySeries.get(t.series.name) ?? 0) + 1);
+    return {
+      id: r.id,
+      receiptCode: r.receiptCode,
+      soldAt: r.createdAt,
+      drawDate: r.drawDate,
+      agent: r.agent,
+      customer: r.customer,
+      slot: r.drawSlot.name,
+      ticketNumbers: r.tickets.map((t) => t.ticketNumber).sort(),
+      seriesSummary: [...bySeries.entries()].map(([n, k]) => `${n}×${k}`).join(', '),
+      ticketCount: r.totalTickets,
+      totalAmount: r.totalAmount,
+      totalSemValue: r.totalSemValue,
+      commissionTotal: c.total,
+      sellerCommission: c.seller,
+      uplineCommission: c.total.minus(c.seller),
+    };
+  });
+
+  return {
+    items,
+    total,
+    page: query.page,
+    pageSize: query.pageSize,
+    summary: {
+      sales: total,
+      tickets: receiptTotals._sum.totalTickets ?? 0,
+      amount: receiptTotals._sum.totalAmount ?? new Prisma.Decimal(0),
+      semValue: receiptTotals._sum.totalSemValue ?? new Prisma.Decimal(0),
+      commission: commissionTotal._sum.commissionAmount ?? new Prisma.Decimal(0),
+    },
+  };
 }
 
 export async function getReceipt(id: number, requester: { id: number; role: string }) {

@@ -6,10 +6,12 @@ import { requireRole } from '../../middleware/requireRole.js';
 import {
   adminCreditSchema,
   adminDebitSchema,
+  agentDirectoryQuerySchema,
   createDepositSchema,
   createWithdrawalSchema,
   exportWithdrawalsQuerySchema,
   idParamSchema,
+  listAdjustmentsQuerySchema,
   listDepositsQuerySchema,
   listTransactionsQuerySchema,
   listWithdrawalsQuerySchema,
@@ -20,7 +22,9 @@ import {
 import {
   adminCreditHandler,
   adminDebitHandler,
+  agentDirectoryHandler,
   exportWithdrawalsHandler,
+  listAdjustmentsHandler,
   getWalletHandler,
   getWalletRulesHandler,
   listDepositsHandler,
@@ -78,7 +82,14 @@ walletRouter.post(
   validate({ body: adminDebitSchema }),
   asyncHandler(adminDebitHandler),
 );
+walletRouter.get(
+  '/adjustments',
+  requireRole(...adminRoles),
+  validate({ query: listAdjustmentsQuerySchema }),
+  asyncHandler(listAdjustmentsHandler),
+);
 
+walletRouter.get('/agents', validate({ query: agentDirectoryQuerySchema }), asyncHandler(agentDirectoryHandler));
 walletRouter.post(
   '/transfer',
   requireRole('AGENT'),

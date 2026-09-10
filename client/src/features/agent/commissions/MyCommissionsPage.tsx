@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { walletApi } from '@/api/wallet';
 import { mlmApi } from '@/api/mlm';
+import { useDebounce } from '@/hooks/useDebounce';
 import { paymentMethodsApi } from '@/api/paymentMethods';
 import { apiErrorMessage } from '@/api/axiosClient';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -16,8 +17,8 @@ import { StatusBadge } from '@/components/ui/Badge';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from '@/store/toastStore';
 import { formatCurrency, formatDateTime } from '@/utils/format';
-import { IconPlus, IconSend, IconWallet } from '@/components/ui/icons';
-import type { CommissionLedgerEntry, WalletTransaction } from '@/types/api';
+import { IconPlus, IconSend, IconWallet, IconSearch, IconX } from '@/components/ui/icons';
+import type { AgentDirectoryEntry, CommissionLedgerEntry, WalletTransaction } from '@/types/api';
 
 export function MyCommissionsPage() {
   const qc = useQueryClient();
@@ -34,9 +35,11 @@ export function MyCommissionsPage() {
   const [depositError, setDepositError] = useState<string | null>(null);
 
   const [transferOpen, setTransferOpen] = useState(false);
-  const [transferCode, setTransferCode] = useState('');
   const [transferAmount, setTransferAmount] = useState('');
   const [transferError, setTransferError] = useState<string | null>(null);
+  const [recipient, setRecipient] = useState<AgentDirectoryEntry | null>(null);
+  const [agentSearch, setAgentSearch] = useState('');
+  const agentQ = useDebounce(agentSearch, 250);
 
   const { data: wallet } = useQuery({ queryKey: ['wallet'], queryFn: walletApi.get });
   const { data: rules } = useQuery({ queryKey: ['wallet-rules'], queryFn: walletApi.rules });
@@ -53,6 +56,12 @@ export function MyCommissionsPage() {
   const { data: withdrawals } = useQuery({ queryKey: ['my-withdrawals'], queryFn: () => walletApi.listWithdrawals({ pageSize: 5 }) });
   const { data: deposits } = useQuery({ queryKey: ['my-deposits'], queryFn: () => walletApi.listDeposits({ pageSize: 5 }) });
   const { data: transfers } = useQuery({ queryKey: ['my-transfers'], queryFn: () => walletApi.listTransfers({ pageSize: 5 }) });
+  const { data: downline } = useQuery({ queryKey: ['my-downline'], queryFn: mlmApi.getMyDownline, enabled: transferOpen });
+  const { data: agentMatches, isFetching: agentSearching } = useQuery({
+    queryKey: ['agent-directory', agentQ],
+    queryFn: () => walletApi.agents(agentQ || undefined),
+    enabled: transferOpen && !recipient,
+  });
   const { data: activePayment, isLoading: paymentLoading } = useQuery({
     queryKey: ['payment-method-active'],
     queryFn: paymentMethodsApi.active,
@@ -85,18 +94,35 @@ export function MyCommissionsPage() {
     onError: (err) => setDepositError(apiErrorMessage(err)),
   });
 
+  function closeTransfer() {
+    setTransferOpen(false);
+    setRecipient(null);
+    setAgentSearch('');
+    setTransferAmount('');
+    setTransferError(null);
+  }
+
   const transferMut = useMutation({
-    mutationFn: () => walletApi.transfer({ toReferralCode: transferCode.trim().toUpperCase(), amount: Number(transferAmount) }),
+    mutationFn: () => walletApi.transfer({ toReferralCode: recipient!.referralCode, amount: Number(transferAmount) }),
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ['wallet'] });
       qc.invalidateQueries({ queryKey: ['my-transfers'] });
-      toast.success(`Sent ${formatCurrency(transferAmount)} to ${result.toUser?.name ?? transferCode}`);
-      setTransferOpen(false);
-      setTransferCode('');
-      setTransferAmount('');
+      toast.success(`Sent ${formatCurrency(transferAmount)} to ${result.toUser?.name ?? recipient?.name}`);
+      closeTransfer();
     },
     onError: (err) => setTransferError(apiErrorMessage(err)),
   });
+
+  // Downline agents shown as quick-pick options at the top of the recipient list (when not searching).
+  const downlinePicks: AgentDirectoryEntry[] = useMemo(
+    () => (downline ?? []).filter((d) => d.role === 'AGENT' && d.status === 'ACTIVE').map((d) => ({ id: d.id, name: d.name, referralCode: d.referralCode })),
+    [downline],
+  );
+  // "Everyone else" list — the full directory minus the team members already shown above.
+  const otherAgents: AgentDirectoryEntry[] = useMemo(() => {
+    const teamIds = new Set(agentSearch ? [] : downlinePicks.map((d) => d.id));
+    return (agentMatches ?? []).filter((a) => !teamIds.has(a.id));
+  }, [agentMatches, downlinePicks, agentSearch]);
 
   const ledgerColumns: Column<CommissionLedgerEntry>[] = [
     { key: 'date', header: 'Date', render: (r) => formatDateTime(r.createdAt) },
@@ -254,14 +280,59 @@ export function MyCommissionsPage() {
         </form>
       </Modal>
 
-      <Modal open={transferOpen} onClose={() => setTransferOpen(false)} title="Transfer to Another Agent">
+      <Modal open={transferOpen} onClose={closeTransfer} title="Transfer to Another Agent">
         <form onSubmit={(e) => { e.preventDefault(); transferMut.mutate(); }} className="space-y-4">
           <p className="text-sm text-slate-400">
             Available balance: <span className="font-semibold text-emerald-300">{formatCurrency(wallet?.balance ?? 0)}</span>
           </p>
-          <FormField label="Recipient's Referral Code" required hint="Ask the other agent for their referral code — visible on their My Team page.">
-            <Input required value={transferCode} onChange={(e) => setTransferCode(e.target.value.toUpperCase())} placeholder="e.g. AGT00002" className="font-mono" />
-          </FormField>
+
+          {recipient ? (
+            <div className="flex items-center justify-between rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2.5">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-slate-100">{recipient.name}</p>
+                <p className="font-mono text-[11px] text-slate-400">ID {recipient.id} · {recipient.referralCode}</p>
+              </div>
+              <button type="button" onClick={() => { setRecipient(null); setAgentSearch(''); }} className="text-xs text-slate-400 hover:text-slate-200">
+                Change
+              </button>
+            </div>
+          ) : (
+            <FormField
+              label="Recipient"
+              required
+              hint="Send to any agent — they don't have to be in your team. Search by name, agent ID or referral code."
+            >
+              <div className="relative">
+                <IconSearch className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-500" />
+                <Input value={agentSearch} onChange={(e) => setAgentSearch(e.target.value)} placeholder="Name / ID / code…" className="pl-8" />
+                {agentSearch && (
+                  <button type="button" onClick={() => setAgentSearch('')} className="absolute right-2.5 top-2.5 text-slate-500 hover:text-slate-300">
+                    <IconX className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <div className="mt-2 max-h-56 space-y-1 overflow-y-auto rounded-lg border border-white/8 bg-white/[0.02] p-1">
+                {!agentSearch && downlinePicks.length > 0 && (
+                  <>
+                    <p className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-slate-500">Your team</p>
+                    {downlinePicks.map((a) => (
+                      <AgentRow key={`dl-${a.id}`} agent={a} onPick={() => setRecipient(a)} />
+                    ))}
+                    <p className="mt-1 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-slate-500">Everyone else</p>
+                  </>
+                )}
+                {agentSearching && <p className="px-2 py-2 text-xs text-slate-500">Searching…</p>}
+                {!agentSearching && otherAgents.length === 0 && (
+                  <p className="px-2 py-2 text-xs text-slate-500">{agentSearch ? 'No agents match.' : 'No other agents.'}</p>
+                )}
+                {otherAgents.map((a) => (
+                  <AgentRow key={a.id} agent={a} onPick={() => setRecipient(a)} />
+                ))}
+              </div>
+            </FormField>
+          )}
+
           <FormField
             label="Amount"
             required
@@ -270,11 +341,24 @@ export function MyCommissionsPage() {
             <Input type="number" min={rules?.transferMinAmount ?? 1} step={rules?.transferMultipleOf ?? 1} required value={transferAmount} onChange={(e) => setTransferAmount(e.target.value)} />
           </FormField>
           {transferError && <p className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300">{transferError}</p>}
-          <Button type="submit" accent="emerald" className="w-full" loading={transferMut.isPending}>
-            Send
+          <Button type="submit" accent="emerald" className="w-full" loading={transferMut.isPending} disabled={!recipient || !transferAmount}>
+            {recipient ? `Send to ${recipient.name}` : 'Select a recipient'}
           </Button>
         </form>
       </Modal>
     </div>
+  );
+}
+
+function AgentRow({ agent, onPick }: { agent: AgentDirectoryEntry; onPick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onPick}
+      className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-emerald-500/10"
+    >
+      <span className="truncate text-slate-200">{agent.name}</span>
+      <span className="ml-2 shrink-0 font-mono text-[10px] text-slate-500">ID {agent.id} · {agent.referralCode}</span>
+    </button>
   );
 }

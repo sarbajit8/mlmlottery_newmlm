@@ -1,5 +1,5 @@
 import { axiosClient } from './axiosClient';
-import type { Paginated, Receipt, SaleResult } from '@/types/api';
+import type { Paginated, Receipt, SaleResult, SalesReport } from '@/types/api';
 
 export const salesApi = {
   create: (input: {
@@ -8,5 +8,7 @@ export const salesApi = {
   }) => axiosClient.post<SaleResult>('/sales', input).then((r) => r.data),
   list: (params: { from?: string; to?: string; agentId?: number; page?: number; pageSize?: number }) =>
     axiosClient.get<Paginated<Receipt>>('/sales', { params }).then((r) => r.data),
+  report: (params: { from?: string; to?: string; agentId?: number; page?: number; pageSize?: number }) =>
+    axiosClient.get<SalesReport>('/sales/report', { params }).then((r) => r.data),
   get: (id: number) => axiosClient.get<Receipt>(`/sales/${id}`).then((r) => r.data),
 };

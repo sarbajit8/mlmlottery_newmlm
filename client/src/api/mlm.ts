@@ -1,5 +1,5 @@
 import { axiosClient } from './axiosClient';
-import type { CommissionLedgerEntry, MlmSettings, Paginated, TreeNode } from '@/types/api';
+import type { CommissionLedgerEntry, DownlineNode, MlmSettings, Paginated, TreeNode } from '@/types/api';
 
 export interface UpdateMlmSettingsInput {
   maxLevels: number;
@@ -19,7 +19,7 @@ export const mlmApi = {
 
   getMyTree: () => axiosClient.get<TreeNode>('/mlm/tree/me').then((r) => r.data),
   getTree: (userId: number) => axiosClient.get<TreeNode>(`/mlm/tree/${userId}`).then((r) => r.data),
-  getMyDownline: () => axiosClient.get('/mlm/downline/me').then((r) => r.data),
+  getMyDownline: () => axiosClient.get<DownlineNode[]>('/mlm/downline/me').then((r) => r.data),
 
   recruit: (input: { name: string; email: string; mobile: string; whatsapp?: string; password: string }) =>
     axiosClient.post('/mlm/recruit', input).then((r) => r.data),

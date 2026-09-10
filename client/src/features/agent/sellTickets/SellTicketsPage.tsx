@@ -42,11 +42,14 @@ export function SellTicketsPage() {
   const walletBalance = Number(wallet?.balance ?? 0);
 
   const openSlots = slots ?? [];
-  const activeSlot = openSlots.find((s) => s.status === 'OPEN_NOW');
-  const drawSlotId = activeSlot?.id;
-  // The draw date is whatever the server says the open slot's window is for — never the browser clock.
-  const drawDate = activeSlot?.drawDate;
+  const liveSlot = openSlots.find((s) => s.status === 'OPEN_NOW');
   const nextSlot = openSlots.filter((s) => s.status === 'ACTIVE').sort((a, b) => a.salesOpenTime.localeCompare(b.salesOpenTime))[0];
+  // Sell for the slot that's open now, or — during the gap between windows — the next one coming up
+  // (agents can build the cart / complete a sale for it; the server allows OPEN_NOW and ACTIVE).
+  const sellSlot = liveSlot ?? nextSlot;
+  const drawSlotId = sellSlot?.id;
+  // The draw date is whatever the server says the slot's window is for — never the browser clock.
+  const drawDate = sellSlot?.drawDate;
 
   useEffect(() => {
     if (drawSlotId && drawDate) cart.setContext(drawSlotId, drawDate);
@@ -108,23 +111,22 @@ export function SellTicketsPage() {
       <PageHeader title="Sell Tickets" description="Search available tickets, build a cart, and complete the sale." />
 
       <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        {activeSlot ? (
+        {liveSlot ? (
           <div className="flex items-center gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
             <span className="relative flex h-2 w-2">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
             </span>
-            Now selling <span className="font-semibold">{activeSlot.name}</span> · {formatDate(activeSlot.drawDate)} — closes {formatTime(activeSlot.drawCloseTime)}
+            Now selling <span className="font-semibold">{liveSlot.name}</span> · {formatDate(liveSlot.drawDate)} — closes {formatTime(liveSlot.drawCloseTime)}
+          </div>
+        ) : sellSlot ? (
+          <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+            Selling for the next draw — <span className="font-semibold">{sellSlot.name}</span> · {formatDate(sellSlot.drawDate)} (opens{' '}
+            {formatTime(sellSlot.salesOpenTime)}). You can build the cart and complete the sale now.
           </div>
         ) : (
           <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
-            No draw slot is open right now.
-            {nextSlot && (
-              <>
-                {' '}
-                <span className="font-semibold">{nextSlot.name}</span> opens at {formatTime(nextSlot.salesOpenTime)}.
-              </>
-            )}
+            All of today's draws are done. Come back tomorrow.
           </div>
         )}
         <div className="sm:w-56">
@@ -147,12 +149,12 @@ export function SellTicketsPage() {
             <CardTitle>Available Tickets</CardTitle>
             <div className="relative w-48">
               <IconSearch className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-500" />
-              <Input placeholder="Ticket # or last 4" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" />
+              <Input placeholder="Jump to number, e.g. 0001" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8" />
             </div>
           </CardHeader>
           <CardBody>
             {!drawSlotId ? (
-              <EmptyState title="No slot open for sales" description="Available tickets will appear here automatically once a draw slot opens." icon={<IconTicket className="h-8 w-8" />} />
+              <EmptyState title="No draw available" description="Today's draws are finished — tickets for tomorrow will appear here." icon={<IconTicket className="h-8 w-8" />} />
             ) : searching ? (
               <p className="py-8 text-center text-sm text-slate-500">Searching…</p>
             ) : !searchResults?.items.length ? (
@@ -164,11 +166,18 @@ export function SellTicketsPage() {
                   return (
                     <button
                       key={t.id}
-                      disabled={inCart}
-                      onClick={() => cart.add(t)}
-                      className="flex flex-col items-start gap-0.5 rounded-lg border border-white/8 bg-white/[0.02] px-3 py-2 text-left transition-colors hover:border-emerald-500/40 hover:bg-emerald-500/5 disabled:cursor-not-allowed disabled:opacity-40"
+                      onClick={() => (inCart ? cart.remove(t.id) : cart.add(t))}
+                      className={cn(
+                        'flex flex-col items-start gap-0.5 rounded-lg border px-3 py-2 text-left transition-colors',
+                        inCart
+                          ? 'border-emerald-500/60 bg-emerald-500/15 ring-1 ring-emerald-500/40'
+                          : 'border-white/8 bg-white/[0.02] hover:border-emerald-500/40 hover:bg-emerald-500/5',
+                      )}
                     >
-                      <span className="font-mono text-xs text-slate-200">{t.ticketNumber}</span>
+                      <span className={cn('font-mono text-xs', inCart ? 'text-emerald-200' : 'text-slate-200')}>
+                        {t.ticketNumber}
+                        {inCart && ' ✓'}
+                      </span>
                       <span className="text-[10px] text-slate-500">
                         {t.series?.name} &middot; {formatCurrency(t.price)}
                       </span>

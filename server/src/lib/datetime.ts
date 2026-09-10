@@ -40,3 +40,23 @@ export function drawDateToUtc(isoDate: string): Date {
 export function drawDateToIso(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
+
+/** How far ahead of UTC the business timezone is, in ms, at a given instant (handles DST). */
+function businessOffsetMs(at: Date): number {
+  const utcWall = new Date(at.toLocaleString('en-US', { timeZone: 'UTC' }));
+  const bizWall = new Date(at.toLocaleString('en-US', { timeZone: BUSINESS_TZ }));
+  return bizWall.getTime() - utcWall.getTime();
+}
+
+/** The exact instant of the most recent midnight in the business timezone — use for
+ *  "today"/"this month" filters on real UTC timestamps (createdAt, soldAt, …). */
+export function startOfBusinessDay(at: Date = new Date()): Date {
+  const { date } = businessNow(at);
+  return new Date(new Date(`${date}T00:00:00.000Z`).getTime() - businessOffsetMs(at));
+}
+
+/** The exact instant of the 1st of the current month at midnight, business timezone. */
+export function startOfBusinessMonth(at: Date = new Date()): Date {
+  const ym = businessNow(at).date.slice(0, 7); // YYYY-MM
+  return new Date(new Date(`${ym}-01T00:00:00.000Z`).getTime() - businessOffsetMs(at));
+}

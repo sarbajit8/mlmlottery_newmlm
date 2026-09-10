@@ -1,5 +1,5 @@
 import { axiosClient } from './axiosClient';
-import type { DepositRequest, DepositStatus, Paginated, WalletRules, WalletTransaction, WalletTransfer, WithdrawalRequest, WithdrawalStatus } from '@/types/api';
+import type { AgentDirectoryEntry, DepositRequest, DepositStatus, Paginated, WalletAdjustment, WalletRules, WalletTransaction, WalletTransfer, WithdrawalRequest, WithdrawalStatus } from '@/types/api';
 
 export const walletApi = {
   get: () => axiosClient.get<{ balance: string }>('/wallet').then((r) => r.data),
@@ -23,8 +23,12 @@ export const walletApi = {
     axiosClient.post<DepositRequest>('/wallet/deposits/credit', input).then((r) => r.data),
   adminDebit: (input: { userId: number; amount: number; note?: string }) =>
     axiosClient.post<WalletTransaction>('/wallet/debit', input).then((r) => r.data),
+  adjustments: (params: { page?: number; pageSize?: number }) =>
+    axiosClient.get<Paginated<WalletAdjustment>>('/wallet/adjustments', { params }).then((r) => r.data),
   transfer: (input: { toReferralCode: string; amount: number }) =>
     axiosClient.post<WalletTransfer>('/wallet/transfer', input).then((r) => r.data),
+  agents: (q?: string) =>
+    axiosClient.get<AgentDirectoryEntry[]>('/wallet/agents', { params: q ? { q } : {} }).then((r) => r.data),
   listTransfers: (params: { page?: number; pageSize?: number; userId?: number; q?: string; from?: string; to?: string }) =>
     axiosClient.get<Paginated<WalletTransfer>>('/wallet/transfers', { params }).then((r) => r.data),
 };

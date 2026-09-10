@@ -314,6 +314,58 @@ export interface WalletRules {
   transferMultipleOf: number;
 }
 
+export interface AgentDirectoryEntry {
+  id: number;
+  name: string;
+  referralCode: string;
+}
+
+export interface SalesReportRow {
+  id: number;
+  receiptCode: string;
+  soldAt: string;
+  drawDate: string;
+  agent: { id: number; name: string; referralCode: string };
+  customer: { name: string; mobile: string };
+  slot: string;
+  ticketNumbers: string[];
+  seriesSummary: string;
+  ticketCount: number;
+  totalAmount: string;
+  totalSemValue: string;
+  commissionTotal: string;
+  sellerCommission: string;
+  uplineCommission: string;
+}
+
+export interface SalesReport {
+  items: SalesReportRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  summary: { sales: number; tickets: number; amount: string; semValue: string; commission: string };
+}
+
+export interface WalletAdjustment {
+  id: string;
+  kind: 'CREDIT' | 'DEBIT';
+  user: { id: number; name: string; referralCode: string } | null;
+  amount: string;
+  note: string | null;
+  by: string | null;
+  at: string;
+}
+
+export interface DownlineNode {
+  id: number;
+  name: string;
+  referralCode: string;
+  role: Role;
+  status: UserStatus;
+  sponsorId: number | null;
+  depth: number;
+}
+
 export interface WalletTransfer {
   id: number;
   fromUserId: number;

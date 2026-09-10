@@ -395,6 +395,90 @@ export async function adminDebitWallet(input: { userId: number; amount: number; 
   });
 }
 
+/** History of the admin's direct wallet moves — credits (a no-transactionId DepositRequest) and
+ *  debits (an ADJUSTMENT wallet transaction) merged into one list, newest first. */
+export async function listWalletAdjustments(query: ListQuery) {
+  const window = query.page * query.pageSize;
+
+  const [credits, debits, creditTotal, debitTotal] = await Promise.all([
+    prisma.depositRequest.findMany({
+      where: { transactionId: null },
+      orderBy: { requestedAt: 'desc' },
+      take: window,
+      include: { user: { select: { id: true, name: true, referralCode: true } }, processedBy: { select: { id: true, name: true } } },
+    }),
+    prisma.walletTransaction.findMany({
+      where: { type: 'ADJUSTMENT' },
+      orderBy: { createdAt: 'desc' },
+      take: window,
+      include: { user: { select: { id: true, name: true, referralCode: true } } },
+    }),
+    prisma.depositRequest.count({ where: { transactionId: null } }),
+    prisma.walletTransaction.count({ where: { type: 'ADJUSTMENT' } }),
+  ]);
+
+  const rows = [
+    ...credits.map((c) => ({
+      id: `c${c.id}`,
+      kind: 'CREDIT' as const,
+      user: c.user,
+      amount: c.amount.toString(),
+      note: c.note ?? null,
+      by: c.processedBy?.name ?? null,
+      at: c.requestedAt,
+    })),
+    ...debits.map((d) => {
+      const rawNote = d.refId?.startsWith('ADJ-') ? d.refId.slice(4) : null;
+      return {
+        id: `d${d.id}`,
+        kind: 'DEBIT' as const,
+        user: d.user,
+        amount: d.amount.abs().toString(),
+        note: rawNote && rawNote !== 'ADMIN-DEBIT' ? rawNote : null,
+        by: null as string | null,
+        at: d.createdAt,
+      };
+    }),
+  ].sort((a, b) => b.at.getTime() - a.at.getTime());
+
+  const start = (query.page - 1) * query.pageSize;
+  return {
+    items: rows.slice(start, start + query.pageSize),
+    total: creditTotal + debitTotal,
+    page: query.page,
+    pageSize: query.pageSize,
+  };
+}
+
+/** Directory of agents an agent can send a wallet transfer to — every other ACTIVE agent on the
+ *  platform, whether or not they're in the sender's team. `q` matches name, referral code or
+ *  numeric id. Capped so it stays a picker, not a data dump. */
+export async function searchTransferRecipients(currentUserId: number, q: string) {
+  const term = q.trim();
+  const idMatch = /^\d+$/.test(term) ? Number(term) : null;
+
+  const users = await prisma.user.findMany({
+    where: {
+      role: 'AGENT',
+      status: 'ACTIVE',
+      id: { not: currentUserId },
+      ...(term
+        ? {
+            OR: [
+              { name: { contains: term } },
+              { referralCode: { contains: term } },
+              ...(idMatch !== null ? [{ id: idMatch }] : []),
+            ],
+          }
+        : {}),
+    },
+    orderBy: { name: 'asc' },
+    take: 50,
+    select: { id: true, name: true, referralCode: true },
+  });
+  return users;
+}
+
 /** Instant agent-to-agent wallet transfer, identified by the recipient's referral code — no
  *  approval step. Amount must clear the admin-configured minimum/step (see getWalletRules). */
 export async function transferBalance(fromUserId: number, input: { toReferralCode: string; amount: number }) {

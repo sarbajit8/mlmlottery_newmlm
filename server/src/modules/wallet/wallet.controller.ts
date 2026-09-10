@@ -77,6 +77,15 @@ export async function transferBalanceHandler(req: Request, res: Response) {
   res.status(201).json(await service.transferBalance(req.user.id, req.body));
 }
 
+export async function agentDirectoryHandler(req: Request, res: Response) {
+  if (!req.user) throw ApiError.unauthorized();
+  res.json(await service.searchTransferRecipients(req.user.id, (req.query.q as string) ?? ''));
+}
+
+export async function listAdjustmentsHandler(req: Request, res: Response) {
+  res.json(await service.listWalletAdjustments(req.query as unknown as service.ListQuery));
+}
+
 export async function listTransfersHandler(req: Request, res: Response) {
   if (!req.user) throw ApiError.unauthorized();
   const scopedUserId = req.user.role === 'SUPER_ADMIN' ? undefined : req.user.id;

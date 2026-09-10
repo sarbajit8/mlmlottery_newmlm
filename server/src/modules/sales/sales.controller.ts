@@ -12,6 +12,11 @@ export async function listSalesHandler(req: Request, res: Response) {
   res.json(await service.listSales(req.query as unknown as service.ListSalesQuery, req.user));
 }
 
+export async function salesReportHandler(req: Request, res: Response) {
+  if (!req.user) throw ApiError.unauthorized();
+  res.json(await service.getSalesReport(req.query as unknown as service.SalesReportQuery, req.user));
+}
+
 export async function getReceiptHandler(req: Request, res: Response) {
   if (!req.user) throw ApiError.unauthorized();
   const { id } = req.params as unknown as { id: number };

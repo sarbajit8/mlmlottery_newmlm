@@ -26,8 +26,8 @@ export function AdminDashboardPage() {
             <StatCard label="Pending Withdrawals" value={formatNumber(data.pendingWithdrawals)} icon={<IconWallet className="h-5 w-5" />} accent="rose" />
             <StatCard label="Tickets Sold (All Time)" value={formatNumber(data.ticketsSoldTotal)} icon={<IconTicket className="h-5 w-5" />} accent="amber" />
             <StatCard label="Revenue (All Time)" value={formatCurrency(data.revenueTotal)} icon={<IconWallet className="h-5 w-5" />} accent="emerald" />
-            <StatCard label="Commission Paid Today" value={formatCurrency(data.commissionPaidToday)} icon={<IconTrophy className="h-5 w-5" />} accent="violet" />
-            <StatCard label="Commission Paid (All Time)" value={formatCurrency(data.commissionPaidTotal)} icon={<IconTrophy className="h-5 w-5" />} accent="violet" />
+            <StatCard label="Agent Commission Today" value={formatCurrency(data.commissionPaidToday)} icon={<IconTrophy className="h-5 w-5" />} accent="violet" />
+            <StatCard label="Agent Commission (All Time)" value={formatCurrency(data.commissionPaidTotal)} icon={<IconTrophy className="h-5 w-5" />} accent="violet" />
           </>
         )}
       </div>

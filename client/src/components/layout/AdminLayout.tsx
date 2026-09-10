@@ -73,8 +73,9 @@ const sections: NavSection[] = [
     title: 'Finance',
     items: [
       { label: 'Reports', to: '/admin/finance/reports', icon: IconFile },
+      { label: 'Agent Sales & Commission', to: '/admin/finance/agent-activity', icon: IconFile },
       { label: 'Transaction History', to: '/admin/finance/transactions', icon: IconWallet },
-      { label: 'Deposit Requests', to: '/admin/finance/deposits', icon: IconPlus },
+      { label: 'Deposits & Adjustments', to: '/admin/finance/deposits', icon: IconPlus },
       { label: 'Wallet / Payouts', to: '/admin/finance/payouts', icon: IconWallet },
       { label: 'Payment Methods', to: '/admin/finance/payment-methods', icon: IconQrCode },
     ],

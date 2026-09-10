@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { ApiError } from '../../lib/apiError.js';
+import { startOfBusinessDay, startOfBusinessMonth } from '../../lib/datetime.js';
 
 interface FlatNode {
   id: number;
@@ -63,31 +64,18 @@ async function fetchSubtree(rootUserId: number, maxDepth = 15): Promise<FlatNode
   return out;
 }
 
-function startOfToday(): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function startOfMonth(): Date {
-  const d = new Date();
-  d.setDate(1);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
 async function buildTree(flat: FlatNode[]): Promise<TreeNode> {
   const ids = flat.map((f) => f.id);
 
   const [todayAgg, monthAgg] = await Promise.all([
     prisma.ticket.groupBy({
       by: ['soldByAgentId'],
-      where: { soldByAgentId: { in: ids }, status: { in: ['SOLD', 'WINNER'] }, soldAt: { gte: startOfToday() } },
+      where: { soldByAgentId: { in: ids }, status: { in: ['SOLD', 'WINNER'] }, soldAt: { gte: startOfBusinessDay() } },
       _sum: { semValue: true },
     }),
     prisma.ticket.groupBy({
       by: ['soldByAgentId'],
-      where: { soldByAgentId: { in: ids }, status: { in: ['SOLD', 'WINNER'] }, soldAt: { gte: startOfMonth() } },
+      where: { soldByAgentId: { in: ids }, status: { in: ['SOLD', 'WINNER'] }, soldAt: { gte: startOfBusinessMonth() } },
       _sum: { semValue: true },
     }),
   ]);
